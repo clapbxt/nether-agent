@@ -1,7 +1,7 @@
 import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 
-// Builds the in-game client into agent/build/ (the folder crates/core/build.rs embeds into the launcher):
+// Builds the in-game client into build/ (published as a release, see README; the launcher bundles a pinned one):
 //   nether-agent.jar       the agent: bootstrap, overlay, modules, fonts, icons, name tables, art
 //   nether-agent-boot.jar  Hook + Tiny, which must sit on the bootstrap class path (Boot-Class-Path)
 //   schema.json            every module and setting, for the launcher's Client page
@@ -15,7 +15,7 @@ import java.security.MessageDigest
 // ASM is bundled RELOCATED to dev.nether.shaded.asm (tools/Relocate.java) so it never clashes with Fabric's own.
 // Versions are pinned in gradle/libs.versions.toml.
 //
-// Run: agent\gradlew.bat build   (or agent\build.ps1, which calls it)
+// Run: gradlew.bat build   (or build.ps1, which calls it)
 
 plugins { java }
 

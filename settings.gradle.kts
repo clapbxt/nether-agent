@@ -1,5 +1,5 @@
-// The in-game client (Java agent). Built separately from the Rust workspace; crates/core/build.rs embeds the
-// jars this build writes to agent/build/. See docs/develop/building.md.
+// The in-game client (Java agent). The launcher (github.com/clapbxt/nether-client) installs its releases into
+// every instance. See README.md.
 rootProject.name = "nether-agent"
 
 dependencyResolutionManagement {

@@ -1,0 +1,41 @@
+# Publishes a client release when a tag v<clientVersion> is pushed (see README "Releasing").
+# The launcher installs the newest release whose protocol matches its own into every instance, so a release
+# reaches players the next time they open the launcher. client.json.sig is what makes the launcher trust it.
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Tag matches gradle.properties
+        run: |
+          v=$(sed -n 's/^clientVersion=//p' gradle.properties)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but clientVersion=$v"; exit 1; }
+      - run: ./gradlew build --console=plain
+      - name: Sign client.json
+        env:
+          CLIENT_SIGNING_KEY: ${{ secrets.CLIENT_SIGNING_KEY }}
+        run: |
+          [ -n "$CLIENT_SIGNING_KEY" ] || { echo "the CLIENT_SIGNING_KEY secret is not set"; exit 1; }
+          java tools/SignClient.java sign build/client.json
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Client $GITHUB_REF_NAME" --generate-notes \
+            build/nether-agent.jar build/nether-agent-boot.jar build/client.json build/client.json.sig build/schema.json
