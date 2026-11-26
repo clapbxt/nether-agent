@@ -16,7 +16,7 @@ final class MenuBack {
     /** Whole-screen backdrop, W x H units at the current Gfx.s. legacy: 1.8.9 draws its logo and brand lines itself, the panorama gets covered there. */
     static void draw(float W, float H, boolean legacy) {
         Module m = MainMenu.MODULE;
-        boolean anim = m.bool("motion") && !Config.calm();
+        boolean anim = m.bool("spin") && !Config.calm(); // "spin", not the old "motion" key: that one was saved off in older configs and left the panorama still
         float dim = (float) m.num("dim");
         boolean ours = Pano.title(W, H, m.str("pano"), anim);
         Gfx.rect(0, 0, W, H, 0, Gfx.a(Gfx.BLACK, dim));

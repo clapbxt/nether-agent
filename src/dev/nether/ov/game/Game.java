@@ -627,9 +627,27 @@ public final class Game {
                 return cam;
             }
         }
-        cam[0] = p[0]; cam[1] = p[1] + 1.62; cam[2] = p[2]; cam[3] = p[3]; cam[4] = p[4]; cam[5] = fov();
+        // 1.8.9 / 1.12.2: the position fields only change 20 times a second; ease from where the camera was drawn to
+        // each new tick position over one tick, as the game's own partial-tick interpolation does, so projected things
+        // (world lyrics, the 3D panel, waypoints) glide instead of stepping while you walk
+        long ns = System.nanoTime();
+        if (Double.isNaN(tx1) || p[0] != tx1 || p[1] != ty1 || p[2] != tz1) {
+            double t = Math.min(1, (ns - tickNs) / 5e7);
+            boolean jump = Double.isNaN(tx1) || (p[0] - tx1) * (p[0] - tx1) + (p[1] - ty1) * (p[1] - ty1) + (p[2] - tz1) * (p[2] - tz1) > 64;
+            if (jump) { tx0 = p[0]; ty0 = p[1]; tz0 = p[2]; }
+            else { tx0 += (tx1 - tx0) * t; ty0 += (ty1 - ty0) * t; tz0 += (tz1 - tz0) * t; }
+            tx1 = p[0]; ty1 = p[1]; tz1 = p[2];
+            tickNs = ns;
+        }
+        double t = Math.min(1, (ns - tickNs) / 5e7);
+        cam[0] = tx0 + (tx1 - tx0) * t; cam[1] = ty0 + (ty1 - ty0) * t + 1.62; cam[2] = tz0 + (tz1 - tz0) * t;
+        cam[3] = p[3]; cam[4] = p[4]; cam[5] = fov();
         return cam;
     }
+
+    /** Legacy camera smoothing: drawn-from (0) and latest tick (1) positions, when that tick arrived. */
+    private static double tx0, ty0, tz0, tx1 = Double.NaN, ty1, tz1;
+    private static long tickNs;
 
     // ---------------------------------------------------------------- dev only: join a world, run commands as the server
 

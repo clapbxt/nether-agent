@@ -117,7 +117,7 @@ public final class Wardrobe {
             account.clear();
             uuid = str(st.get("uuid"));
             slim = Boolean.TRUE.equals(st.get("slim"));
-            publicWorn = str(st.get("publicWorn"));
+            publicWorn = str(st.get(st.containsKey("publicWorn") ? "publicWorn" : "netherWorn")); // the launcher still writes netherWorn
             accountWorn = str(st.get("accountWorn"));
             Map<?, ?> cw = st.get("cosmetics") instanceof Map ? (Map<?, ?>) st.get("cosmetics") : null;
             for (int i = 0; i < worn.length; i++) worn[i] = cw == null ? "" : str(cw.get(Cosmetics.SLOTS[i]));

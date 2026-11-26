@@ -11,6 +11,7 @@ import java.util.Set;
 import dev.nether.ov.features.hud.Waypoints;
 import dev.nether.ov.features.lyrics.Lyrics;
 import dev.nether.ov.features.visual.ViewEditor;
+import dev.nether.ov.features.visual.Views;
 import dev.nether.ov.framework.Config;
 import dev.nether.ov.framework.Input;
 import dev.nether.ov.framework.Module;
@@ -468,7 +469,7 @@ final class SettingsPage {
         boolean on = m.enabled();
         Gfx.rect(x + 1, y + 6, 6, 6, 3, on ? 0xFF3DDC84 : Th.mut);
         Gfx.text(Gfx.MONO, 8.5f, x + 13, y + 9.5f, Th.dim, "PREVIEW", false, 2f);
-        String what = !on ? "Turn it on to see it in game" : m.hudPiece() ? "Live: the real HUD box at its scale" : ViewEditor.has(m) ? "Drag in the picture to adjust" : "Live";
+        String what = !on ? "Turn it on to see it in game" : m.hudPiece() ? "Live: the real HUD box at its scale" : ViewEditor.has(m) ? (Menu.liveOk(m) ? "Edit it over the running game" : "Drag in the picture to adjust") : "Live";
         Gfx.text(Gfx.UI, 10.5f, x + 13 + Gfx.width(Gfx.MONO, 8.5f, "PREVIEW", 2f) + 10, y + 9.5f, Th.mut, what);
         String tl = open ? "Hide" : "Show";
         float tw = Gfx.width(Gfx.UI, 10.5f, tl) + 22;
@@ -481,6 +482,7 @@ final class SettingsPage {
         if (th) Menu.tip = open ? "Fold the preview away for more room" : "Show the preview again";
         if (!open) { Gfx.rect(x, y + PV_BAR - 4, w, 1, 0, Th.ln); return; }
         float sy = y + PV_BAR, sh = h - PV_BAR;
+        if (ViewEditor.has(m) && Menu.liveOk(m)) { liveStage(m, x, sy, w, sh); return; } // in a world: the real game, as Hand View does
         if (ViewEditor.has(m)) { ViewEditor.draw(m, x, sy, w, "ve" + m.id); return; }
         int[] clip = Gfx.clipIn(x, sy, w, sh);
         if (!Pano.still(MainMenu.MODULE.str("pano"), x, sy, w, sh, 205, 0.42f, 0)) Gfx.rectG(x, sy, w, sh, 0, 0xFF1B2030, 0xFF0B0C10);
@@ -494,6 +496,30 @@ final class SettingsPage {
         if (m.hudPiece()) tag(x + w - 10, sy + sh - 26, "SCALE " + fmt(m.scale(), 0.01) + "x", true);
         Gfx.reclip(clip);
         Gfx.ring(x, sy, w, sh, 0, 1, Th.ln2);
+    }
+
+    /**
+     * Fire / Shield / Ride View Editor in a world: instead of a painted picture, the stage opens the live editor, where
+     * the menu steps aside and you adjust the game's own fire overlay, held shield or mount (as Hand View Editor does).
+     */
+    private static void liveStage(Module m, float x, float y, float w, float h) {
+        int[] clip = Gfx.clipIn(x, y, w, h);
+        if (!Pano.still(MainMenu.MODULE.str("pano"), x, y, w, h, 205, 0.42f, 0)) Gfx.rectG(x, y, w, h, 0, 0xFF1B2030, 0xFF0B0C10);
+        Gfx.rect(x, y, w, h, 0, 0x8C000000);
+        boolean hv = Menu.in(x, y, w, h);
+        float cx = x + w / 2, cy = y + h / 2;
+        Gfx.textC(Gfx.SEMI, 17, cx, cy - 30, 0xFFFFFFFF, "Adjust it on your own game", 0);
+        String sub = m instanceof Views.Fire ? "The game's real fire overlay shows while you edit, burning or not"
+            : m instanceof Views.Shield ? "Hold a shield, then drag up or down to move it"
+            : "Ride a horse, pig, camel or other mount to see its opacity";
+        Gfx.textC(Gfx.UI, 11, cx, cy - 8, 0xB3FFFFFF, sub, 0);
+        String bl = "EDIT LIVE";
+        float bw = Gfx.width(Gfx.SEMI, 11, bl, 1.2f) + 40;
+        boolean go = Menu.fbutton("pvlive" + m.id, bl, cx - bw / 2, cy + 14, bw, 32, true);
+        Gfx.reclip(clip);
+        Gfx.ring(x, y, w, h, 0, 1, hv ? Gfx.a(Th.ac, 0.9f) : Th.ln2);
+        if (hv) Menu.tip = "The menu steps aside: change it over the running game";
+        if (go || Menu.hit(x, y, w, h)) { Menu.commitEdit(); ColorPicker.close(); Menu.startLive(m); }
     }
 
     private static void tag(float x, float y, String s, boolean right) {

@@ -57,7 +57,7 @@ public final class Pano {
                         BufferedImage i = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(jpg));
                         if (i == null) throw new IllegalArgumentException("unreadable strip");
                         readyName = name;
-                        ready = i;
+                        ready = sharpen(i);
                         return;
                     }
                     BufferedImage[] faces = new BufferedImage[6];
@@ -82,6 +82,45 @@ public final class Pano {
             t.start();
         }
         return false;
+    }
+
+    /**
+     * The shipped strips are 3840 x 720 (960 px per quarter turn), so a 1080p title shows them about 2x enlarged and the
+     * GPU's bilinear stretch made them look soft. Off-thread: a bicubic 1.5x enlargement, then an unsharp mask (3x3
+     * Gaussian, wrapping round the seam), so the remaining stretch on screen starts from a crisp picture.
+     */
+    static BufferedImage sharpen(BufferedImage src) {
+        int w = src.getWidth() * 3 / 2, h = src.getHeight() * 3 / 2;
+        BufferedImage up = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = up.createGraphics();
+        g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING, java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+        g.drawImage(src, 0, 0, w, h, null);
+        g.dispose();
+        int[] p = up.getRGB(0, 0, w, h, null, 0, w), b = new int[p.length];
+        for (int y = 0; y < h; y++) { // horizontal 1-2-1 (the strip wraps round at its ends)
+            int r = y * w;
+            for (int x = 0; x < w; x++) {
+                int l = p[r + (x == 0 ? w - 1 : x - 1)], c = p[r + x], q = p[r + (x == w - 1 ? 0 : x + 1)];
+                b[r + x] = (((l >> 16 & 255) + 2 * (c >> 16 & 255) + (q >> 16 & 255)) / 4) << 16
+                    | (((l >> 8 & 255) + 2 * (c >> 8 & 255) + (q >> 8 & 255)) / 4) << 8 | ((l & 255) + 2 * (c & 255) + (q & 255)) / 4;
+            }
+        }
+        float amt = 0.65f;
+        int[] row = new int[w];
+        for (int y = 0; y < h; y++) { // vertical 1-2-1 of that, then original + amt * (original - blur)
+            int ru = Math.max(0, y - 1) * w, r = y * w, rd = Math.min(h - 1, y + 1) * w;
+            for (int x = 0; x < w; x++) {
+                int o = p[r + x], v = 0;
+                for (int sh = 16; sh >= 0; sh -= 8) {
+                    int bl = ((b[ru + x] >> sh & 255) + 2 * (b[r + x] >> sh & 255) + (b[rd + x] >> sh & 255)) / 4, oc = o >> sh & 255;
+                    v |= Math.max(0, Math.min(255, Math.round(oc + amt * (oc - bl)))) << sh;
+                }
+                row[x] = v;
+            }
+            up.setRGB(0, y, w, 1, row, 0, w);
+        }
+        return up;
     }
 
     /** Resamples Minecraft's face order (+Z, +X, -Z, -X, +Y, -Y) into a yaw/tangent strip. */

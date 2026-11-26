@@ -60,7 +60,7 @@ public final class MainMenu {
         m.add(Setting.header("Background"));
         m.add(Setting.choice("pano", "Panorama", "Random", Pano.CHOICES).hint("Nether's own shader-lit scenes. Random picks a different one each time the game starts."));
         m.add(Setting.slider("dim", "Dim", 0, 0.8, 0.05, 0.3).hint("Darkens the panorama behind the menu."));
-        m.add(Setting.bool("motion", "Animate background", true).hint("The panorama turns slowly. Reduce motion stops it."));
+        m.add(Setting.bool("spin", "Animate background", true).hint("The panorama turns slowly. Reduce motion stops it."));
         m.add(Setting.header("Layout"));
         m.add(Setting.choice("layout", "Layout", "Lobby", LAYOUTS).hint("Lobby: your party on stage, Fortnite style."));
         m.add(Setting.bool("partyStage", "Party on stage", true).hint("Lobby layout: you and your party in your skins."));

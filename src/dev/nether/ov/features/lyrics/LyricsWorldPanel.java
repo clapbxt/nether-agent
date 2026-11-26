@@ -191,7 +191,9 @@ public final class LyricsWorldPanel {
         if (c == null) { hide(); return; }
         double dx = x - c[0], dy = y - c[1], dz = z - c[2];
         if (dx * dx + dy * dy + dz * dz > 32 * 32) { hide(); return; } // walked away
-        if (!Input.inWorld() || Game.screenOpen() || !Project.begin(fbW, fbH)) { on = false; return; }
+        // chat open: the panel stays (it used to vanish), only aiming at it waits until chat closes
+        boolean aim = !Game.screenOpen();
+        if (!Input.inWorld() || !aim && !Game.chatOpen() || !Project.begin(fbW, fbH)) { on = false; return; }
         double scale = 0.9 + 0.1 * k;
         // cull only when the whole panel is behind you or off one side of the screen; a panel partly behind the camera
         // keeps drawing (the map below carries the clip w, so the GPU cuts away the part behind you)
@@ -219,7 +221,10 @@ public final class LyricsWorldPanel {
         double[] o = at(0, 0, scale), r = right();
         double bu = unit * scale / rs;
         float[] map = Project.planeMap(o, new double[] {r[0] * bu, 0, r[2] * bu}, new double[] {0, -bu, 0}, fbW, fbH);
-        float[] pt = closeAt < 0 && k > 0.6f ? pointer(fbW, fbH, scale) : null;
+        // which side of the slab you are on: in front you see the controls, behind only its plain back
+        double[] fwd = forward(), ctr = at(W / 2, H / 2, scale);
+        boolean facing = (c[0] - ctr[0]) * -fwd[0] + (c[2] - ctr[2]) * -fwd[2] > 0;
+        float[] pt = facing && aim && closeAt < 0 && k > 0.6f ? pointer(fbW, fbH, scale) : null;
         on = pt != null;
         if (on) { pu = pt[0]; pv = pt[1]; }
         if (held != null) { if (!Input.btn[0] || !on) held = null; else slide(held); }
@@ -228,9 +233,11 @@ public final class LyricsWorldPanel {
         boolean r0 = Gfx.round;
         ArrayList<Hit> t = last; last = hits; hits = t; hits.clear();
         try {
+            Gfx.alpha = a0 * k;
+            slab(c, scale, facing, fbW, fbH);
+            if (!facing) return;
             Gfx.round = true;
             Gfx.s = rs;
-            Gfx.alpha = a0 * k;
             Gfx.map(map);
             body(L);
             if (on) { // the aim point: a small dot with a soft ring, like a cursor on the panel
@@ -246,6 +253,70 @@ public final class LyricsWorldPanel {
     }
 
     private static float len(float ax, float ay, float bx, float by) { return (float) Math.hypot(bx - ax, by - ay); }
+
+    /** Thickness of the panel in units (0.07 blocks), and the corner radius its edges follow (the cards' own). */
+    private static final float DEPTH = 7, CR = 14;
+
+    /**
+     * The panel as a solid slab: its edges (each card's rounded outline extruded backwards, lit from above) and, from
+     * behind, its plain back, so it reads as an object from the side instead of thinning to nothing. Faces turned away
+     * from the camera are skipped; there is no depth test, so the back and edges go down first and the front over them.
+     */
+    private static void slab(double[] c, double scale, boolean facing, int fbW, int fbH) {
+        double[] f = forward(), r = right();
+        double d = DEPTH * unit * scale, bu = unit * scale;
+        int dark = Gfx.mix(Th.bg, 0xFF000000, 0.35f), lit = Gfx.mix(Th.s2, Th.ln2, 0.5f);
+        float s0 = Gfx.s;
+        boolean r0 = Gfx.round;
+        try {
+            Gfx.s = 1;
+            Gfx.round = false;
+            if (!facing) { // the back: both cards' silhouettes on the far plane
+                Gfx.s = rs;
+                Gfx.round = true;
+                double[] o = at(0, 0, scale), b = {o[0] + f[0] * d, o[1], o[2] + f[2] * d}, k = {r[0] * bu / rs, 0, r[2] * bu / rs};
+                Gfx.map(Project.planeMap(b, k, new double[] {0, -bu / rs, 0}, fbW, fbH));
+                for (float[] cd : CARDS) {
+                    Gfx.rect(cd[0], 0, cd[1], H, CR, Gfx.a(dark, 0.97f));
+                    Gfx.ring(cd[0], 0, cd[1], H, CR, 1, Gfx.a(Th.ln2, 0.9f));
+                }
+                Gfx.unmap();
+                Gfx.s = 1;
+                Gfx.round = false;
+            }
+            for (float[] cd : CARDS) {
+                float[][] pts = outline(cd[0], 0, cd[1], H, CR);
+                for (int i = 0; i < pts.length; i++) {
+                    float[] p = pts[i], q = pts[(i + 1) % pts.length];
+                    float du = q[0] - p[0], dv = q[1] - p[1], l = (float) Math.hypot(du, dv);
+                    if (l < 1e-3f) continue;
+                    float nu = dv / l, nv = -du / l; // outward normal (v down, clockwise outline)
+                    double[] P = at(p[0], p[1], scale), Q = at(q[0], q[1], scale);
+                    double[] n = {r[0] * nu, -nv, r[2] * nu};
+                    double mx = (P[0] + Q[0]) / 2 + f[0] * d / 2, my = (P[1] + Q[1]) / 2, mz = (P[2] + Q[2]) / 2 + f[2] * d / 2;
+                    if ((c[0] - mx) * n[0] + (c[1] - my) * n[1] + (c[2] - mz) * n[2] <= 0) continue; // turned away
+                    Gfx.map(Project.planeMap(P, new double[] {(Q[0] - P[0]) / 64, (Q[1] - P[1]) / 64, (Q[2] - P[2]) / 64},
+                        new double[] {f[0] * d / 64, 0, f[2] * d / 64}, fbW, fbH));
+                    Gfx.rect(0, 0, 64, 64, 0, Gfx.mix(dark, lit, 0.35f + 0.45f * Math.max(0, -nv) - 0.2f * Math.max(0, nv)));
+                    Gfx.unmap();
+                }
+            }
+        } finally { Gfx.s = s0; Gfx.round = r0; }
+    }
+
+    /** The two cards: {x, width} in units (all H tall). */
+    private static final float[][] CARDS = {{0, LW}, {RX, RW}};
+
+    /** Clockwise outline (v down) of a rounded rectangle: each corner arc in four steps. */
+    private static float[][] outline(float x, float y, float w, float h, float rad) {
+        float[][] ctr = {{x + w - rad, y + rad}, {x + w - rad, y + h - rad}, {x + rad, y + h - rad}, {x + rad, y + rad}};
+        float[][] out = new float[4 * 5][];
+        for (int k = 0; k < 4; k++) for (int j = 0; j <= 4; j++) {
+            double a = Math.toRadians(-90 + 90 * k + 22.5 * j);
+            out[k * 5 + j] = new float[] {ctr[k][0] + rad * (float) Math.cos(a), ctr[k][1] + rad * (float) Math.sin(a)};
+        }
+        return out;
+    }
 
     // ---------------------------------------------------------------- content
 
