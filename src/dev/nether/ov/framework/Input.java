@@ -220,7 +220,7 @@ public final class Input {
             if (eat) return true;
         }
         if (!menuOpen) {
-            if (Party.typing && MainMenu.title) { if (cp >= 32 && cp <= 0xFFFF && !Character.isSurrogate((char) cp)) Party.chars(String.valueOf((char) cp)); return true; }
+            if ((Party.typing || Party.form()) && MainMenu.title) { if (cp >= 32 && cp <= 0xFFFF && !Character.isSurrogate((char) cp)) Party.chars(String.valueOf((char) cp)); return true; }
             return false;
         }
         // any language: printable BMP characters (no controls, no surrogate halves: the glyph atlas is per char)

@@ -49,10 +49,19 @@ public final class Menu {
 
     /** Space the Controls / Profiles / Wardrobe pages draw in (set every frame from the panel; they anchor at px + 28, py + 124). */
     public static float PW = 880, PH = 540;
-    public static final String[] TABS = {"Favorites", "All", "HUD", "Visual", "PvP", "Utility", "Wardrobe", "HUD Editor", "Settings"};
-    private static final String[] TAB_ICON = {"favorites", "all", "hud", "visual", "pvp", "utility", "wardrobe", "hudeditor", "settings"};
+    public static final String[] TABS = {"Favorites", "All", "Visual", "Utility", "HUD", "Wardrobe", "HUD Editor", "Settings"};
+    private static final String[] TAB_ICON = {"favorites", "all", "visual", "utility", "hud", "wardrobe", "hudeditor", "settings"};
     /** sidebar entries from here on are the CLIENT group */
-    public static final int T_WARDROBE = 6, T_HUDED = 7, T_SETTINGS = 8, T_FRIENDS = 9;
+    public static final int T_HUD = 4, T_WARDROBE = 5, T_HUDED = 6, T_SETTINGS = 7, T_FRIENDS = 8;
+    /**
+     * The HUD tab's own colour (it lists widgets, added in the HUD editor, not modules to switch on): violet, or teal when
+     * the theme's accent is itself blue / violet, so it always reads apart from the accent.
+     */
+    public static int hudTint() {
+        float[] hsb = java.awt.Color.RGBtoHSB(Th.ac >> 16 & 255, Th.ac >> 8 & 255, Th.ac & 255, null);
+        boolean cool = hsb[1] > 0.25f && hsb[0] > 0.5f && hsb[0] < 0.92f;
+        return cool ? 0xFF2EC4A6 : 0xFFA66BFF;
+    }
     private static int sub;
 
     public static boolean hudEdit;
@@ -106,7 +115,10 @@ public final class Menu {
         Sfx.open();
         tS = gridT = 0; tDir = 0; pillX = -1; hub = true; drag = capture = null; searchFocus = false; scroll = scrollT = 0; fCur = -1; kbNav = false;
         // the title screen shows the hub's actions itself (MainMenu.actions): the menu key goes straight to the mods
-        if (MainMenu.title) { hub = false; page = null; if (tab != lastCat) setTab(lastCat); }
+        if (MainMenu.title) { hub = false; page = null; if (tab != lastCat) setTab(lastCat); return; }
+        String start = Config.str("client", "startPage", "Hub");
+        if (start.equals("Mods")) go(lastCat < T_WARDROBE ? lastCat : 1);
+        else if (start.equals("Settings")) go(T_SETTINGS);
     }
 
     /** Open the menu straight on screen t (the title screen's actions row). */
@@ -281,6 +293,30 @@ public final class Menu {
         capture = null;
     }
 
+    private static boolean hudOutside;
+
+    /** Leaves the layout editor: straight out of the menu when it was opened from outside it, else back where it was. */
+    static void leaveHudEdit() {
+        hudEdit = false;
+        HudEditor.reset();
+        ColorPicker.close();
+        if (hudOutside) { hudOutside = false; Input.setMenu(false); }
+    }
+
+    /** The HUD editor, from anywhere (the pause screen's Edit HUD button, the Mods header, Ctrl+E). */
+    public static void openHudEditor() {
+        boolean outside = !Input.menuOpen;
+        if (outside) Input.setMenu(true);
+        hudOutside = outside && Input.menuOpen; // opened from the pause screen: leaving it closes the menu
+        if (!Input.menuOpen) return;
+        commitEdit();
+        ColorPicker.close();
+        page = null;
+        hub = false;
+        live = null;
+        hudEdit = true;
+    }
+
     /** Opens the menu straight on a module's settings page (the lyrics settings key). */
     public static void openModule(String id) {
         Input.setMenu(true);
@@ -302,7 +338,7 @@ public final class Menu {
 
     private static void key(int k, boolean press, boolean shift, boolean ctrl) {
         if (k == 256) { if (press) esc(); return; }
-        if (hudEdit) { HudEditor.key(k, press, shift, ctrl); return; }
+        if (hudEdit && !fieldFocus()) { HudEditor.key(k, press, shift, ctrl); return; }
         if (fieldFocus()) {
             if (k == 259) { if (!editBuf.isEmpty()) editBuf = editBuf.substring(0, editBuf.length() - 1); }
             else if ((k == 257 || k == 335) && press) commitEdit();
@@ -313,7 +349,7 @@ public final class Menu {
         if (ctrl) {
             if (k == 70 && page != null && !hub && tab < T_WARDROBE && SettingsPage.takesTyping(page)) { SettingsPage.search(null); return; } // Ctrl+F on a page: its settings
             if (k == 70) { commitEdit(); ColorPicker.close(); hub = false; page = null; if (tab >= T_WARDROBE) setTab(1); searchFocus = true; return; } // Ctrl+F
-            if (k == 69) { commitEdit(); ColorPicker.close(); page = null; hudEdit = true; return; }                                   // Ctrl+E
+            if (k == 69) { openHudEditor(); return; }                                                                                   // Ctrl+E
             if (k == 86) { typedSearch(Plat.cur.clipboard()); return; }                                                                // Ctrl+V
             return;
         }
@@ -332,7 +368,7 @@ public final class Menu {
         switch (k) {
             case 258:
                 if (page != null || tab == T_WARDROBE) nav(shift ? -1 : 1);
-                else if (tab == T_SETTINGS) { commitEdit(); sub = Math.floorMod(sub + (shift ? -1 : 1), 3); scroll = scrollT = 0; fCur = -1; }
+                else if (tab == T_SETTINGS) { commitEdit(); sub = Math.floorMod(sub + (shift ? -1 : 1), SET_TABS.length); scroll = scrollT = 0; fCur = -1; }
                 else { commitEdit(); ColorPicker.close(); setTab(Math.floorMod(tab + (shift ? -1 : 1), T_WARDROBE)); }
                 kbNav = true;
                 break;
@@ -365,7 +401,7 @@ public final class Menu {
         if (Wardrobe.ask) { Wardrobe.ask = false; return; }
         if (editSet != null && editKind == QUERY) { SettingsPage.clearSearch(); return; }
         if (fieldFocus()) { editWp = -1; editSet = null; return; }
-        if (hudEdit) { if (!HudEditor.esc()) { hudEdit = false; HudEditor.reset(); } return; }
+        if (hudEdit) { if (!HudEditor.esc()) leaveHudEdit(); return; }
         if (live != null) { live = null; return; }
         if (ColorPicker.id != null) { ColorPicker.close(); return; }
         if (page == null && (searchFocus || !search.isEmpty())) { search = ""; searchFocus = false; scroll = scrollT = 0; fCur = -1; return; }
@@ -377,7 +413,7 @@ public final class Menu {
 
     private static void typedSearch(String t) {
         if (hudEdit || capture != null || t.isEmpty() || (!hub && tab >= T_WARDROBE)) return;
-        if (!hub && page != null && SettingsPage.takesTyping(page)) { if (!t.trim().isEmpty()) SettingsPage.search(t); return; } // a module page searches its settings
+        if (!hub && page != null && SettingsPage.takesTyping(page)) return; // a module page's search takes typing only once clicked (or Ctrl+F)
         String q = (search + t.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')).replaceFirst("^\\s+", "");
         q = q.substring(0, Math.min(24, q.length()));
         if (q.equals(search)) return; // a lone space: nothing to search for (Space toggles the focused card)
@@ -760,19 +796,18 @@ public final class Menu {
     private static void hub(float e) {
         // over the title screen the hub is the only thing to look at: its buttons and logo recede further
         Gfx.rect(0, 0, W, H, 0, Gfx.a(0xFF000000, (Th.light() ? 0.18f : 0.34f) + (MainMenu.title ? 0.26f : 0)));
-        // 2x2 grid: MODS / WARDROBE over FRIENDS / SETTINGS, equal tiles (icon + label)
+        // MODS (mods + settings in one screen) over WARDROBE / FRIENDS
         float lh = 150, bw0 = 196, bh = 56, gap = 10, rw = bw0 * 2 + gap, gh = bh * 2 + gap;
         float y = (H - (lh + 24 + gh)) / 2 + (1 - e) * 14, x = (W - rw) / 2, by = y + lh + 24;
         float a0 = Gfx.alpha, kl = k(tS, 0, 0.34f), k0 = k(tS, 0.07f, 0.3f), k1 = k(tS, 0.12f, 0.3f);
         Gfx.alpha = a0 * kl;
         Logo.brand(W / 2 - Logo.brandWidth(lh) / 2, y - (1 - kl) * 18, lh);
         Gfx.alpha = a0 * k0;
-        boolean bm = hubBtn("hm", x, by + (1 - k0) * 14, bw0, bh, "all", "MODS");
-        boolean bw = hubBtn("hw", x + bw0 + gap, by + (1 - k0) * 14, bw0, bh, "wardrobe", "WARDROBE");
+        boolean bm = hubBtn("hm", x, by + (1 - k0) * 14, rw, bh, "all", "MODS");
         Gfx.alpha = a0 * k1;
-        float fx = x, fy = by + bh + gap + (1 - k1) * 14;
+        float fx = x + bw0 + gap, fy = by + bh + gap + (1 - k1) * 14;
+        boolean bw = hubBtn("hw", x, fy, bw0, bh, "wardrobe", "WARDROBE");
         boolean bf = hubBtn("hf", fx, fy, bw0, bh, "friends", "FRIENDS");
-        boolean bs = hubBtn("hs", x + bw0 + gap, fy, bw0, bh, "settings", "SETTINGS");
         float ks = k1;
         int badge = Friends.badge();
         if (badge > 0) { // requests + asks to join
@@ -792,8 +827,7 @@ public final class Menu {
             Gfx.text(Gfx.UI, 12, lx + 14 + tw, ly, Th.dim, u);
         }
         Gfx.alpha = a0;
-        if (bs) go(T_SETTINGS);
-        else if (bm) go(lastCat);
+        if (bm) go(lastCat);
         else if (bw) go(T_WARDROBE);
         else if (bf) go(T_FRIENDS);
     }
@@ -833,7 +867,7 @@ public final class Menu {
         hub = true;
         tS = 0;
         tDir = 0;
-        fCur = kbNav ? (tab == T_SETTINGS ? 3 : tab == T_WARDROBE ? 1 : tab == T_FRIENDS ? 2 : 0) : -1;
+        fCur = kbNav ? (tab == T_WARDROBE ? 1 : tab == T_FRIENDS ? 2 : 0) : -1;
     }
 
     /** Leave the hub for the screen of tab t. */
@@ -849,19 +883,28 @@ public final class Menu {
         tDir = t == T_SETTINGS ? -1 : t == T_WARDROBE || t == T_FRIENDS ? 1 : 0;
     }
 
-    /** Module in this sidebar category (0 favourites, 1 all, 2 HUD, 3 visual, 4 PvP, 5 utility). */
+    /** Module in this sidebar category (0 favourites, 1 all, 2 visual, 3 utility; 4 HUD = the widgets, which no other tab lists). */
     private static boolean inTab(Module m, int t) {
+        boolean w = Modules.widget(m);
         switch (t) {
-            case 0: return m.fav();
-            case 1: return true;
-            case 2: return "HUD".equals(m.cat);
-            case 3: return "Visual".equals(m.cat);
-            case 4: return PVP.contains(m.id);
-            default: return "Utility".equals(m.cat) || "Movement".equals(m.cat);
+            case 0: return !w && m.fav();
+            case 1: return !w;
+            case 2: return !w && "Visual".equals(m.cat);
+            case 3: return !w && ("Utility".equals(m.cat) || "Movement".equals(m.cat));
+            default: return w;
         }
     }
 
-    private static final java.util.Set<String> PVP = new java.util.HashSet<>(java.util.Arrays.asList("cps", "keys", "reach", "combo", "crosshair", "armor", "potions", "items"));
+    private static final java.util.Set<String> PVP = new java.util.HashSet<>(java.util.Arrays.asList("cps", "keys", "reach", "combo", "armor", "potions", "items"));
+
+    /** A widget's group in the HUD tab and the HUD editor's Add widget list. */
+    static String widgetSection(Module m) {
+        if (m == Modules.MEDIA || m == Modules.KARAOKE) return "Music";
+        return PVP.contains(m.id) ? "PvP" : "Info";
+    }
+
+    /** The section a module of the open tab is listed under. */
+    private static String sec(Module m) { return tab == 1 ? m.cat : tab == T_HUD ? widgetSection(m) : TABS[tab]; }
 
     private static int onCount(int t) {
         int n = 0;
@@ -890,29 +933,36 @@ public final class Menu {
     /** Mods: logo + MODS, search, HUD editor; category chips; the card grid. */
     private static void modsScreen(float wheel, float e) {
         float pw = Math.max(760, Math.min(1180, W * 0.86f)), ph = pageH(Math.max(500, Math.min(640, H * 0.86f)));
-        float hx = header(pw, ph, e, null, "MODS"), cy = sy + TOP / 2f;
-        Gfx.text(Gfx.UI, 12, hx, cy, Th.mut, onCount(tab) + " of " + count(tab) + " on");
+        float hx = header(pw, ph, e, null, "NETHER"), cy = sy + TOP / 2f;
+        hx = mainTabs(hx, cy);
+        Gfx.text(Gfx.UI, 12, hx, cy, Th.mut, onCount(tab) + " of " + count(tab) + (tab == T_HUD ? " on screen" : " on"));
         float ex = sx + sw - 16 - 28 - 8 - 28;
         boolean eh = in(ex, cy - 14, 28, 28);
         float et = an("hed", eh);
         Gfx.rect(ex, cy - 14, 28, 28, 4, Gfx.a(Th.ov, 0.07f * et));
         ModIcons.draw("hudeditor", ex + 6, cy - 8, 16, Gfx.mix(Th.mut, Th.tx, et));
         if (eh) tip = "Edit HUD layout  (Ctrl E)";
-        if (hit(ex, cy - 14, 28, 28)) { commitEdit(); ColorPicker.close(); page = null; hudEdit = true; }
+        if (hit(ex, cy - 14, 28, 28)) openHudEditor();
         searchBox(ex - 12 - 250, cy);
         float x = sx + 16, y = sy + TOP + 10, a0 = Gfx.alpha;
         float[] cxs = new float[T_WARDROBE], cws = new float[T_WARDROBE];
         for (int i = 0, xx = 0; i < T_WARDROBE; i++) {
+            if (i == T_HUD) xx += 13; // a hairline between the module categories and the HUD widgets
             cws[i] = 37 + Gfx.width(Gfx.UI, 12, TABS[i]) + 8 + Gfx.width(Gfx.UI, 11, String.valueOf(count(i))) + 14;
             cxs[i] = xx;
             xx += (int) Math.ceil(cws[i] + 6);
         }
+        Gfx.alpha = a0 * k(tS, 0.05f + T_HUD * 0.03f, 0.24f);
+        Gfx.rect(x + cxs[T_HUD] - 10, y + 6, 1, 16, 0, Th.ln2);
         for (int i = 0; i < T_WARDROBE; i++) {
             if (tab != i) {
                 Gfx.alpha = a0 * k(tS, 0.05f + i * 0.03f, 0.24f);
                 float h = an("chh" + i, in(x + cxs[i], y, cws[i], 28));
-                // Feather category pills: filled quiet plates, no outline; the open one is the accent
-                Gfx.rect(x + cxs[i], y, cws[i], 28, 6, Gfx.mix(Th.s2, Th.s3, h));
+                // Feather category pills: filled quiet plates, no outline; the open one is the accent. HUD: a blue plate and outline
+                if (i == T_HUD) {
+                    Gfx.rect(x + cxs[i], y, cws[i], 28, 6, Gfx.a(hudTint(), 0.14f + 0.10f * h));
+                    Gfx.ring(x + cxs[i], y, cws[i], 28, 6, 1, Gfx.a(hudTint(), 0.45f + 0.3f * h));
+                } else Gfx.rect(x + cxs[i], y, cws[i], 28, 6, Gfx.mix(Th.s2, Th.s3, h));
             }
         }
         Gfx.alpha = a0;
@@ -921,7 +971,7 @@ public final class Menu {
             float f0 = Math.min(1, Gfx.dt * 14);
             pillX += (cxs[tab] - pillX) * f0;
             pillW += (cws[tab] - pillW) * f0;
-            Gfx.rect(x + pillX, y, pillW, 28, 6, Th.ac);
+            Gfx.rect(x + pillX, y, pillW, 28, 6, Gfx.mix(Th.ac, hudTint(), an("pillhud", tab == T_HUD)));
         }
         for (int i = 0; i < T_WARDROBE; i++) {
             String c = String.valueOf(count(i));
@@ -930,22 +980,43 @@ public final class Menu {
             boolean sel = tab == i;
             Gfx.alpha = a0 * k(tS, 0.05f + i * 0.03f, 0.24f);
             float t = an("ch" + i, sel), h = an("chh" + i, in(x, y, w, 28));
-            int col = Gfx.mix(Gfx.mix(Th.dim, Th.tx, h), 0xFFFFFFFF, t);
+            int col = Gfx.mix(Gfx.mix(i == T_HUD ? Gfx.mix(Th.dim, hudTint(), 0.75f) : Th.dim, Th.tx, h), 0xFFFFFFFF, t);
             ModIcons.draw(TAB_ICON[i], x + 14, y + 6.5f, 15, col);
             float lw = Gfx.text(Gfx.UI, 12, x + 37, y + 14, col, TABS[i]);
             Gfx.text(Gfx.UI, 11, x + 37 + lw + 8, y + 14, Gfx.mix(Th.mut, 0xC0FFFFFF, t), c);
             if (hit(x, y, w, 28) && i != tab) { commitEdit(); ColorPicker.close(); page = null; setTab(i); searchFocus = false; }
+            if (i == T_HUD && in(x, y, w, 28) && tab != i) tip = "HUD widgets: click one for its settings; add, remove and place them in the HUD editor";
         }
         Gfx.alpha = a0;
         float top = sy + TOP + 48;
         list(sx, top, sw, sh - (top - sy) - FOOT, wheel);
-        footer(page != null ? (SettingsPage.takesTyping(page) ? "Type to search settings  ·  Arrows move  ·  Left / Right adjust  ·  Esc back to modules" : "Esc back to modules") : "Arrows move  \u00b7  Space toggle  \u00b7  Enter settings  \u00b7  Esc back");
+        footer(page != null ? (SettingsPage.takesTyping(page) ? "Click search or Ctrl F to search settings  ·  Arrows move  ·  Left / Right adjust  ·  Esc back to modules" : "Esc back to modules")
+            : tab == T_HUD ? "Arrows move  \u00b7  Enter settings  \u00b7  Ctrl E edits the HUD  \u00b7  Esc back" : "Arrows move  \u00b7  Space toggle  \u00b7  Enter settings  \u00b7  Esc back");
     }
 
-    /** Settings: gear + SETTINGS; General / Controls / Profiles. */
+    /** The MODS | SETTINGS tabs beside the title, shared by both screens (like Lunar's top bar). Returns the x after them. */
+    private static float mainTabs(float x, float cy) {
+        String[] names = {"MODS", "SETTINGS"};
+        for (int i = 0; i < 2; i++) {
+            float w = Gfx.width(Gfx.SEMI, 12, names[i], 1.2f) + 30;
+            boolean sel = (i == 1) == (tab == T_SETTINGS), hv = in(x, cy - 14, w, 28);
+            float t = an("mt" + i, sel);
+            Gfx.rect(x, cy - 14, w, 28, 6, Gfx.mix(Gfx.mix(Th.s2, Th.s3, hv ? 1 : 0), Th.ac, t));
+            Gfx.textC(Gfx.SEMI, 12, x + w / 2, cy, Gfx.mix(Gfx.mix(Th.dim, Th.tx, hv ? 1 : 0), 0xFFFFFFFF, t), names[i], 1.2f);
+            if (!sel && hit(x, cy - 14, w, 28)) {
+                commitEdit(); ColorPicker.close(); page = null; searchFocus = false;
+                setTab(i == 1 ? T_SETTINGS : lastCat);
+                tS = gridT = 0; tDir = 0; pillX = -1;
+            }
+            x += w + 6;
+        }
+        return x + 10;
+    }
+
+    /** Settings: General / Controls / Profiles, under the shared MODS | SETTINGS tabs. */
     private static void settingsScreen(float wheel, float e) {
-        float pw = Math.max(720, Math.min(940, W * 0.72f)), ph = pageH(Math.max(500, Math.min(640, H * 0.86f)));
-        header(pw, ph, e, "settings", "SETTINGS");
+        float pw = Math.max(760, Math.min(1180, W * 0.86f)), ph = pageH(Math.max(500, Math.min(640, H * 0.86f)));
+        mainTabs(header(pw, ph, e, null, "NETHER"), sy + TOP / 2f);
         PW = pw + 16;
         PH = ph + 62;
         settingsPage(sx - 8, sy - 68, wheel, sx, sy, pw, ph);
@@ -1106,10 +1177,10 @@ public final class Menu {
         List<Module> list = filtered();
         // sections: one per category in the All tab, else a single one
         List<String> secs = new ArrayList<>();
-        for (Module m : list) { String s = tab == 1 ? m.cat : TABS[tab]; if (!secs.contains(s)) secs.add(s); }
+        for (Module m : list) { String s = sec(m); if (!secs.contains(s)) secs.add(s); }
         if (list.isEmpty()) {
             boolean q = !search.isEmpty();
-            String head = q ? "No modules match" : tab == 0 ? "No favourites yet" : "No modules in this category";
+            String head = q ? (tab == T_HUD ? "No widgets match" : "No modules match") : tab == 0 ? "No favourites yet" : "No modules in this category";
             String sub = q ? "Esc clears the search" : tab == 0 ? "Star a module to pin it here and on top of every list" : "Nothing here for this instance";
             Gfx.textC(Gfx.HEAD, 14, lx + lw / 2, top + 80, Th.dim, head, 0);
             Gfx.textC(Gfx.UI, 11, lx + lw / 2, top + 104, Th.mut, sub, 0);
@@ -1121,7 +1192,7 @@ public final class Menu {
         float contentH = 8;
         for (String s : secs) {
             int n = 0;
-            for (Module m : list) if ((tab == 1 ? m.cat : TABS[tab]).equals(s)) n++;
+            for (Module m : list) if (sec(m).equals(s)) n++;
             contentH += 30 + ((n + cols - 1) / cols) * (CARD_H + GAP);
         }
         float maxS = scrollTo(contentH, viewH, wheel);
@@ -1130,7 +1201,7 @@ public final class Menu {
         int ci = 0;
         for (String s : secs) {
             int n = 0;
-            for (Module m : list) if ((tab == 1 ? m.cat : TABS[tab]).equals(s)) n++;
+            for (Module m : list) if (sec(m).equals(s)) n++;
             float tw = Gfx.text(Gfx.SEMI, 12, x + 4, y + 12, Th.dim, s);
             String c = String.valueOf(n);
             float bw0 = Gfx.width(Gfx.UI, 10, c) + 12;
@@ -1139,7 +1210,7 @@ public final class Menu {
             y += 30;
             int i = 0;
             for (Module m : list) {
-                if (!(tab == 1 ? m.cat : TABS[tab]).equals(s)) continue;
+                if (!sec(m).equals(s)) continue;
                 float ck = k(gridT, Math.min(ci++, 14) * 0.025f, 0.26f);
                 float cx = x + (i % cols) * (cw + GAP), cy = y + (i / cols) * (CARD_H + GAP) + (1 - ck) * 14;
                 boolean f = focus(cx, cy, cw, CARD_H);
@@ -1156,6 +1227,7 @@ public final class Menu {
 
     /** One module card: name + star, big icon (faded when off), settings cog, ENABLED / DISABLED bar. Click = toggle, cog / right-click / Enter = settings, Space = toggle. */
     private static void card(Module m, float x, float y, float w, boolean f) {
+        if (Modules.widget(m)) { widgetCard(m, x, y, w, f); return; }
         boolean on = m.enabled(), lock = m.locked(), hv = in(x, y, w, CARD_H);
         float t = an("r" + m.id, hv || f && kbNav), on1 = an("on" + m.id, on);
         y -= t * 2;
@@ -1197,6 +1269,39 @@ public final class Menu {
         if (starHit) Config.set(m.id, "fav", !fav);
         else if (cogHit || u == 257 || (clickRt && hv)) { if (clickRt && hv) clickRt = false; ColorPicker.close(); openPage(m.id); }
         else if (!lock && (u == 32 || hit(x, y, w, CARD_H))) { Config.set(m.id, "enabled", !on); Sfx.toggle(!on); }
+    }
+
+    /**
+     * A HUD widget's card (HUD tab): name, big icon, and whether it is on the screen; no switch. Click, Enter or Space opens
+     * its settings (on screen or not); the HUD editor adds and removes widgets.
+     */
+    private static void widgetCard(Module m, float x, float y, float w, boolean f) {
+        boolean on = m.enabled(), lock = m.locked(), hv = in(x, y, w, CARD_H);
+        float t = an("r" + m.id, hv || f && kbNav), on1 = an("on" + m.id, on);
+        y -= t * 2;
+        Gfx.rect(x, y, w, CARD_H, Th.R, Gfx.mix(Th.s2, Th.s3, t * 0.8f));
+        Gfx.ring(x, y, w, CARD_H, Th.R, 1, Gfx.mix(Th.ln, Gfx.a(hudTint(), 0.7f), t));
+        float a0 = Gfx.alpha;
+        if (lock) Gfx.alpha = a0 * 0.55f;
+        Gfx.text(Gfx.SEMI, 13, x + 12, y + 17, Gfx.mix(Th.dim, Th.tx, Math.max(t, on1)), fit(m.name, Gfx.SEMI, 13, w - 24, 0));
+        float ic = 32, iy = y + 32 + (CARD_H - 32 - 38 - ic) / 2;
+        float a1 = Gfx.alpha;
+        Gfx.alpha = a1 * (0.6f + 0.4f * on1);
+        boolean item = ModIcons.drawItem(m.id, x + w / 2 - ic / 2, iy, ic);
+        Gfx.alpha = a1;
+        if (!item && !ModIcons.draw(m.id, x + w / 2 - ic / 2, iy, ic, Gfx.mix(Th.mut, Th.tx, on1)))
+            Gfx.textC(Gfx.HEAD, 24, x + w / 2, iy + ic / 2, Th.dim, m.name.substring(0, 1), 0);
+        // status: a blue "On screen" plate with a dot, or a quiet "Not on screen" (not a switch)
+        float by = y + CARD_H - 34, bh = 24, bx = x + 10, bw = w - 20;
+        Gfx.rect(bx, by, bw, bh, 5, Gfx.mix(Gfx.a(Th.ov, 0.05f), Gfx.a(hudTint(), 0.20f), on1));
+        String st = lock ? "Unavailable" : on ? "On screen" : "Not on screen";
+        float sw0 = Gfx.width(Gfx.UI, 10.5f, st), dx = bx + bw / 2 - (sw0 + (on ? 12 : 0)) / 2;
+        if (on && !lock) { Gfx.rect(dx, by + bh / 2 - 3, 6, 6, 3, hudTint()); dx += 12; }
+        Gfx.text(Gfx.UI, 10.5f, dx, by + bh / 2, Gfx.mix(Th.mut, Gfx.mix(hudTint(), 0xFFFFFFFF, 0.35f), on1), st);
+        Gfx.alpha = a0;
+        if (hv) tip = lock && m.lockNote() != null ? m.lockNote() : m.desc;
+        int u = used(f);
+        if (u == 257 || u == 32 || hit(x, y, w, CARD_H) || (clickRt && hv)) { if (clickRt && hv) clickRt = false; ColorPicker.close(); openPage(m.id); }
     }
 
     /** One list row: icon box, name + description, star, key chip, toggle. Click the name = settings, the pill = on / off. */
@@ -1481,82 +1586,105 @@ public final class Menu {
     private static final String[] ACC_NAMES = {"Red", "Ember", "Acid", "Cobalt", "Violet"};
     private static final String[][] ACC = {{"#F76A05", "#FF9A2E"}, {"#E5372D", "#FF6157"}, {"#22A845", "#3DDC6A"}, {"#1F6FEB", "#4C8DFF"}, {"#8B3DFF", "#A66BFF"}};
 
+    private static final String[] SET_TABS = {"General", "Title screen", "Controls", "Profiles"};
+    private static final String[] START = {"Hub", "Mods", "Settings"};
+    private static float setPillX = -1, setPillW;
+
+    /** Section title inside a settings page. */
+    private static void section(float x, float y, String s) { Gfx.text(Gfx.MONO, 9, x, y + 16, Th.mut, s, false, 2f); }
+
     private static void settingsPage(float cpx, float cpy, float wheel, float mx, float py, float mw, float ph) {
         navCols = 1;
-        String[] names = {"General", "Controls", "Profiles"};
-        float x = mx + 20, y = py + TOP + 10;
-        for (int i = 0; i < 3; i++) {
-            float w = Gfx.width(Gfx.UI, 12, names[i]) + 28;
-            boolean sel = sub == i, hv = in(x, y, w, 28);
-            float t = an("ss" + i, sel);
-            Gfx.rect(x, y, w, 28, 4, Gfx.a(Th.ov, 0.10f * t));
-            if (!sel && hv) Gfx.rect(x, y, w, 28, 4, Gfx.a(Th.ov, 0.07f));
-            Gfx.textC(Gfx.UI, 12, x + w / 2, y + 14, Gfx.mix(Th.dim, Th.tx, t), names[i], 0);
-            if (hit(x, y, w, 28) && sub != i) { sub = i; scroll = scrollT = 0; fCur = -1; commitEdit(); }
-            x += w + 6;
+        // sub-pages: the same chips as the module categories
+        float cy0 = py + TOP + 10, a0 = Gfx.alpha;
+        float[] cxs = new float[SET_TABS.length], cws = new float[SET_TABS.length];
+        for (int i = 0, xx = 0; i < SET_TABS.length; i++) {
+            cws[i] = Gfx.width(Gfx.UI, 12, SET_TABS[i]) + 32;
+            cxs[i] = xx;
+            xx += (int) Math.ceil(cws[i] + 6);
         }
-        if (sub == 1) { float sp = PH; PH -= 40; Controls.draw(cpx, cpy + 40, wheel); PH = sp; return; }
-        if (sub == 2) { float sp = PH; PH -= 40; Profiles.draw(cpx, cpy + 40, wheel); PH = sp; return; }
+        float bx = mx + 16;
+        for (int i = 0; i < SET_TABS.length; i++) if (sub != i) Gfx.rect(bx + cxs[i], cy0, cws[i], 28, 6, Gfx.mix(Th.s2, Th.s3, an("sch" + i, in(bx + cxs[i], cy0, cws[i], 28))));
+        if (setPillX < 0 || Config.calm()) { setPillX = cxs[sub]; setPillW = cws[sub]; }
+        float f0 = Math.min(1, Gfx.dt * 14);
+        setPillX += (cxs[sub] - setPillX) * f0;
+        setPillW += (cws[sub] - setPillW) * f0;
+        Gfx.rect(bx + setPillX, cy0, setPillW, 28, 6, Th.ac);
+        for (int i = 0; i < SET_TABS.length; i++) {
+            boolean hv = in(bx + cxs[i], cy0, cws[i], 28);
+            Gfx.textC(Gfx.UI, 12, bx + cxs[i] + cws[i] / 2, cy0 + 14, Gfx.mix(Gfx.mix(Th.dim, Th.tx, hv ? 1 : 0), 0xFFFFFFFF, an("sc" + i, sub == i)), SET_TABS[i], 0);
+            if (hit(bx + cxs[i], cy0, cws[i], 28) && sub != i) { sub = i; scroll = scrollT = 0; fCur = -1; commitEdit(); ColorPicker.close(); }
+        }
+        Gfx.alpha = a0;
+        if (sub == 2) { float sp = PH; PH -= 40; Controls.draw(cpx, cpy + 40, wheel); PH = sp; return; }
+        if (sub == 3) { float sp = PH; PH -= 40; Profiles.draw(cpx, cpy + 40, wheel); PH = sp; return; }
         float lx = mx + 20, lw = mw - 40, top = py + TOP + 48, viewH = py + ph - FOOT - top;
-        float contentH = 8 + 62 + 62 + 62 + 30 + (page != null && page.equals("menu") ? SettingsPage.inlineH(MainMenu.MODULE, lw) + 10 : 0) + ROW + 20;
+        Module mm = MainMenu.MODULE;
+        float contentH = sub == 1 ? SettingsPage.flatH(mm, lw) + 20 : 26 + 3 * 62 + 26 + 62 + 20;
         float maxS = Math.max(0, contentH - viewH);
         scrollT = Math.max(0, Math.min(maxS, scrollT - wheel * 46));
         scroll = Config.calm() ? scrollT : scroll + (scrollT - scroll) * Math.min(1, Gfx.dt * 16);
         beginClip(lx - 8, top, lw + 16, viewH);
-        float yy = top + 8 - scroll;
-        // theme
-        Gfx.text(Gfx.UI, 13, lx, yy + 15, Th.tx, "Theme");
-        float cx = lx + lw - Th.NAMES.length * 96;
-        Gfx.text(Gfx.UI, 10, lx, yy + 31, Th.mut,
-            fit("Dark or Light. Your accent is the only colour that changes. Also the launcher.", Gfx.UI, 10, cx - lx - 12, 0));
-        for (int i = 0; i < Th.NAMES.length; i++) {
-            boolean sel = Th.theme == i, hv = in(cx, yy + 8, 90, 28);
-            float t = an("th" + i, sel);
-            Gfx.rect(cx, yy + 8, 90, 28, 6, Gfx.mix(Gfx.a(Th.ov, 0.05f), Th.ac, t));
-            Gfx.textC(Gfx.UI, 11, cx + 45, yy + 22, Gfx.mix(Gfx.mix(Th.dim, Th.tx, hv ? 1 : 0), 0xFFFFFFFF, t), Th.LABELS[i], 0);
-            if (hit(cx, yy + 8, 90, 28)) Config.set("client", "theme", Th.NAMES[i]);
-            cx += 96;
+        float yy = top + 4 - scroll;
+        if (sub == 1) {
+            SettingsPage.flat(mm, lx, yy, lw);
+        } else {
+            section(lx, yy, "APPEARANCE");
+            yy += 26;
+            // theme
+            Gfx.text(Gfx.UI, 13, lx, yy + 15, Th.tx, "Theme");
+            float cx = lx + lw - Th.NAMES.length * 96;
+            Gfx.text(Gfx.UI, 10, lx, yy + 31, Th.mut, fit("Dark or Light. Also the launcher.", Gfx.UI, 10, cx - lx - 12, 0));
+            for (int i = 0; i < Th.NAMES.length; i++) {
+                boolean sel = Th.theme == i, hv = in(cx, yy + 8, 90, 28);
+                float t = an("th" + i, sel);
+                Gfx.rect(cx, yy + 8, 90, 28, 6, Gfx.mix(Gfx.a(Th.ov, 0.05f), Th.ac, t));
+                Gfx.textC(Gfx.UI, 11, cx + 45, yy + 22, Gfx.mix(Gfx.mix(Th.dim, Th.tx, hv ? 1 : 0), 0xFFFFFFFF, t), Th.LABELS[i], 0);
+                if (hit(cx, yy + 8, 90, 28)) Config.set("client", "theme", Th.NAMES[i]);
+                cx += 96;
+            }
+            Gfx.rect(lx, yy + 61, lw, 1, 0, Th.ln);
+            yy += 62;
+            // accent
+            Gfx.text(Gfx.UI, 13, lx, yy + 15, Th.tx, "Accent colour");
+            Gfx.text(Gfx.UI, 10, lx, yy + 31, Th.mut, "Selection, switches and play marks.");
+            cx = lx + lw - 5 * 40;
+            for (int i = 0; i < 5; i++) {
+                boolean sel = ACC[i][0].equalsIgnoreCase(Config.str("client", "accent", "#F76A05"));
+                int c = 0xFF000000 | Integer.parseInt(ACC[i][0].substring(1), 16);
+                Gfx.rect(cx, yy + 10, 28, 24, 4, c);
+                if (sel) Gfx.ring(cx - 3, yy + 7, 34, 30, 6, 2, Th.tx);
+                else if (in(cx, yy + 10, 28, 24)) Gfx.ring(cx - 3, yy + 7, 34, 30, 6, 1, Th.ln2);
+                if (hit(cx, yy + 10, 28, 24)) { Config.set("client", "accent", ACC[i][0]); Config.set("client", "accent2", ACC[i][1]); }
+                cx += 40;
+            }
+            Gfx.rect(lx, yy + 61, lw, 1, 0, Th.ln);
+            yy += 62;
+            // reduce motion
+            boolean calm = Config.bool("client", "calm", false);
+            Gfx.text(Gfx.UI, 13, lx, yy + 15, Th.tx, "Reduce motion");
+            Gfx.text(Gfx.UI, 10, lx, yy + 31, Th.mut, Config.launcherCalm() ? "Set by the launcher." : "Menu animations snap; nothing blinks.");
+            pill("calm", lx + lw - 30, yy + 14, calm || Config.launcherCalm());
+            if (!Config.launcherCalm() && (hit(lx + lw - 40, yy + 4, 40, 34))) Config.set("client", "calm", !calm);
+            Gfx.rect(lx, yy + 61, lw, 1, 0, Th.ln);
+            yy += 62;
+            section(lx, yy, "MENU");
+            yy += 26;
+            // start page
+            Gfx.text(Gfx.UI, 13, lx, yy + 15, Th.tx, "Opens on");
+            Gfx.text(Gfx.UI, 10, lx, yy + 31, Th.mut, "What the menu key shows first: the hub, your mods, or settings.");
+            String cur = Config.str("client", "startPage", "Hub");
+            float sx0 = lx + lw - START.length * 96;
+            for (int i = 0; i < START.length; i++) {
+                boolean sel = START[i].equals(cur), hv = in(sx0, yy + 8, 90, 28);
+                float t = an("sp" + i, sel);
+                Gfx.rect(sx0, yy + 8, 90, 28, 6, Gfx.mix(Gfx.a(Th.ov, 0.05f), Th.ac, t));
+                Gfx.textC(Gfx.UI, 11, sx0 + 45, yy + 22, Gfx.mix(Gfx.mix(Th.dim, Th.tx, hv ? 1 : 0), 0xFFFFFFFF, t), START[i], 0);
+                if (hit(sx0, yy + 8, 90, 28)) Config.set("client", "startPage", START[i]);
+                sx0 += 96;
+            }
+            Gfx.rect(lx, yy + 61, lw, 1, 0, Th.ln);
         }
-        Gfx.rect(lx, yy + 61, lw, 1, 0, Th.ln);
-        yy += 62;
-        // accent
-        Gfx.text(Gfx.UI, 13, lx, yy + 15, Th.tx, "Accent colour");
-        Gfx.text(Gfx.UI, 10, lx, yy + 31, Th.mut, "Selection, switches and play marks.");
-        cx = lx + lw - 5 * 40;
-        for (int i = 0; i < 5; i++) {
-            boolean sel = ACC[i][0].equalsIgnoreCase(Config.str("client", "accent", "#F76A05"));
-            int c = 0xFF000000 | Integer.parseInt(ACC[i][0].substring(1), 16);
-            Gfx.rect(cx, yy + 10, 28, 24, 4, c);
-            if (sel) Gfx.ring(cx - 3, yy + 7, 34, 30, 6, 2, Th.tx);
-            else if (in(cx, yy + 10, 28, 24)) Gfx.ring(cx - 3, yy + 7, 34, 30, 6, 1, Th.ln2);
-            if (hit(cx, yy + 10, 28, 24)) { Config.set("client", "accent", ACC[i][0]); Config.set("client", "accent2", ACC[i][1]); }
-            cx += 40;
-        }
-        Gfx.rect(lx, yy + 61, lw, 1, 0, Th.ln);
-        yy += 62;
-        // reduce motion
-        boolean calm = Config.bool("client", "calm", false);
-        Gfx.text(Gfx.UI, 13, lx, yy + 15, Th.tx, "Reduce motion");
-        Gfx.text(Gfx.UI, 10, lx, yy + 31, Th.mut, Config.launcherCalm() ? "Set by the launcher." : "Menu animations snap; nothing blinks.");
-        pill("calm", lx + lw - 30, yy + 14, calm || Config.launcherCalm());
-        if (!Config.launcherCalm() && (hit(lx + lw - 40, yy + 4, 40, 34))) Config.set("client", "calm", !calm);
-        Gfx.rect(lx, yy + 61, lw, 1, 0, Th.ln);
-        yy += 62;
-        Gfx.text(Gfx.UI, 10, lx, yy + 14, Th.mut, "MAIN MENU", false, 1.2f);
-        yy += 30;
-        Module mm = MainMenu.MODULE;
-        boolean open = "menu".equals(page);
-        boolean f = focus(lx, yy, lw, ROW);
-        boolean hv = in(lx, yy, lw, ROW);
-        Gfx.rect(lx, yy, lw, ROW, 4, Gfx.a(Th.ov, hv ? 0.04f : open ? 0.05f : 0f));
-        Gfx.rect(lx + 12, yy + 8, 28, 28, 4, Gfx.a(Th.ov, 0.06f));
-        ModIcons.draw("menu", lx + 18.5f, yy + ROW / 2f - 7.5f, 15, Th.dim);
-        float nw = Gfx.text(Gfx.UI, 13, lx + 52, yy + ROW / 2f, Th.tx, "Title screen");
-        Gfx.text(Gfx.UI, 11, lx + 64 + nw, yy + ROW / 2f, Th.mut, fit("Backgrounds, layout, quick join, account", Gfx.UI, 11, lw - 64 - nw - 40, 0));
-        chevron(lx + lw - 20, yy + ROW / 2f, open, Th.dim);
-        if (hit(lx, yy, lw, ROW) || used(f) != 0) { commitEdit(); ColorPicker.close(); page = open ? null : "menu"; }
-        yy += ROW + 2;
-        if (open) SettingsPage.inline(mm, lx, yy + 8, lw);
         endClip();
         if (maxS > 0) {
             float th = Math.max(30, viewH * viewH / contentH);

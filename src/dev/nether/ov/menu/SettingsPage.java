@@ -318,15 +318,34 @@ final class SettingsPage {
         Gfx.alpha = a1;
         if (!item && !ModIcons.draw(m.id, x + 12, y + 12, 24, Gfx.mix(Th.dim, Th.tx, on1))) Gfx.textC(Gfx.HEAD, 18, x + ic / 2, y + ic / 2, Th.dim, m.name.substring(0, 1), 0);
 
-        // right side, from the right: on switch, reset all, layout / live
+        // right side, from the right: on switch (a widget: where it is instead), reset all, layout / live
         float rx = x + w;
-        String st = lock ? "Unavailable" : on ? "Enabled" : "Disabled";
-        boolean fs = Menu.focus(rx - 44, y + 13, 44, 22);
-        toggle("pgsw" + m.id, rx - 44, y + 13, on, 44, 24);
-        float sw0 = Gfx.width(Gfx.SEMI, 11, st, 0.6f);
-        Gfx.text(Gfx.SEMI, 11, rx - 54 - sw0, y + 25, lock ? Th.mut : on ? Th.tx : Th.dim, st, false, 0.6f);
-        if (!lock && (Menu.hit(rx - 60 - sw0, y + 6, sw0 + 60, 38) || Menu.used(fs) != 0)) { Config.set(m.id, "enabled", !on); Sfx.toggle(!on); }
-        rx -= 70 + sw0;
+        boolean widget = Modules.widget(m);
+        if (widget) {
+            // no switch: a widget goes on and off the screen in the HUD editor
+            String el = lock ? "UNAVAILABLE" : on ? "EDIT IN HUD" : "ADD TO HUD";
+            float ew = Gfx.width(Gfx.SEMI, 11, el, 1.2f) + 28;
+            rx -= ew;
+            if (Menu.fbutton("pglay" + m.id, el, rx, y + 10, ew, 30, !on && !lock) && !lock) {
+                Menu.commitEdit();
+                ColorPicker.close();
+                if (!on) HudEditor.add(m); else HudEditor.select(m.id);
+                Menu.hudEdit = true;
+            }
+            if (Menu.in(rx, y + 10, ew, 30)) Menu.tip = on ? "Move, resize or remove it in the HUD editor  (Ctrl E)" : "Put it on your screen and place it in the HUD editor";
+            String st = lock ? "" : on ? "On screen" : "Not on screen";
+            float sw0 = Gfx.width(Gfx.SEMI, 11, st, 0.6f);
+            Gfx.text(Gfx.SEMI, 11, rx - 12 - sw0, y + 25, on ? Gfx.mix(Menu.hudTint(), Th.tx, 0.3f) : Th.dim, st, false, 0.6f);
+            rx -= 24 + sw0;
+        } else {
+            String st = lock ? "Unavailable" : on ? "Enabled" : "Disabled";
+            boolean fs = Menu.focus(rx - 44, y + 13, 44, 22);
+            toggle("pgsw" + m.id, rx - 44, y + 13, on, 44, 24);
+            float sw0 = Gfx.width(Gfx.SEMI, 11, st, 0.6f);
+            Gfx.text(Gfx.SEMI, 11, rx - 54 - sw0, y + 25, lock ? Th.mut : on ? Th.tx : Th.dim, st, false, 0.6f);
+            if (!lock && (Menu.hit(rx - 60 - sw0, y + 6, sw0 + 60, 38) || Menu.used(fs) != 0)) { Config.set(m.id, "enabled", !on); Sfx.toggle(!on); }
+            rx -= 70 + sw0;
+        }
         boolean ask = m.id.equals(resetAsk) && System.currentTimeMillis() - resetAt < 3000;
         String rl = ask ? "CONFIRM RESET" : "RESET ALL";
         float rw = Gfx.width(Gfx.SEMI, 11, rl, 1.2f) + 28;
@@ -343,7 +362,7 @@ final class SettingsPage {
             if (Menu.fbutton("pglive" + m.id, ll, rx, y + 10, lw, 30, true)) { Menu.commitEdit(); ColorPicker.close(); Menu.startLive(m); }
             if (Menu.in(rx, y + 10, lw, 30)) Menu.tip = "The menu steps aside: change it over the running game";
         }
-        if (m.hudPiece()) {
+        if (m.hudPiece() && !widget) {
             String el = "EDIT LAYOUT";
             float ew = Gfx.width(Gfx.SEMI, 11, el, 1.2f) + 28;
             rx -= ew + 8;
@@ -361,9 +380,11 @@ final class SettingsPage {
         boolean fav = m.fav();
         float sx = tx + nw + 10 + cw + 6;
         boolean sh = Menu.in(sx, y + 4, 22, 22);
-        Menu.drawStar(sx + 11, y + 15, fav, fav ? 0xFFFFB020 : Gfx.mix(Th.mut, Th.tx, Menu.an("pgstar" + m.id, sh)));
-        if (sh) Menu.tip = fav ? "Remove from favourites" : "Add to favourites (pinned on top of every list)";
-        if (Menu.hit(sx, y + 4, 22, 22)) Config.set(m.id, "fav", !fav);
+        if (!widget) { // widgets are all in the HUD tab: no favourites
+            Menu.drawStar(sx + 11, y + 15, fav, fav ? 0xFFFFB020 : Gfx.mix(Th.mut, Th.tx, Menu.an("pgstar" + m.id, sh)));
+            if (sh) Menu.tip = fav ? "Remove from favourites" : "Add to favourites (pinned on top of every list)";
+            if (Menu.hit(sx, y + 4, 22, 22)) Config.set(m.id, "fav", !fav);
+        }
         String d = Menu.fit(m.desc, Gfx.UI, 11.5f, room, 0);
         Gfx.text(Gfx.UI, 11.5f, tx, y + 36, Th.dim, d);
         if (!d.equals(m.desc) && Menu.in(tx, y + 28, room, 18)) Menu.tip = m.desc;
@@ -700,7 +721,7 @@ final class SettingsPage {
         double v = Config.num(m.id, s.key, ((Number) s.def).doubleValue()), d = ((Number) s.def).doubleValue();
         boolean compact = w < 460, shift = Input.keys[340] || Input.keys[344];
         float vw = 60, bw = 24, gw = compact ? vw : bw * 2 + vw + 8, gx = cr - gw;
-        float tw = compact ? Math.max(90, Math.min(150, w * 0.32f)) : Math.max(130, Math.min(230, w * 0.3f)), tx = gx - 18 - tw;
+        float tw = compact ? Math.max(56, Math.min(90, w * 0.2f)) : Math.max(130, Math.min(230, w * 0.3f)), tx = gx - 18 - tw;
         // keys: Left / Right one step (Shift x10)
         int a = Menu.adjust(f);
         double nv = v;

@@ -211,6 +211,27 @@ public final class Leave {
         return null;
     }
 
+    /** The widget is a 1.14+ button (it has a press callback). */
+    public static boolean isButton(Object w) { return press(w) != null; }
+
+    /** Moves a 1.14+ widget to (x, y) GUI px (AbstractWidget's ints: width, height, x, y); false when it is not one. */
+    public static boolean place(Object w, int x, int y) {
+        try {
+            for (Class<?> k = w.getClass(); k != null && k != Object.class; k = k.getSuperclass()) {
+                List<Field> ints = new ArrayList<>();
+                for (Field f : k.getDeclaredFields()) if (f.getType() == int.class && !Modifier.isStatic(f.getModifiers())) ints.add(f);
+                if (ints.size() < 4) continue;
+                for (Field f : ints) f.setAccessible(true);
+                int ww = ints.get(0).getInt(w), hh = ints.get(1).getInt(w);
+                if (ww <= 0 || ww > 1000 || hh <= 0 || hh > 64) continue;
+                ints.get(2).setInt(w, x);
+                ints.get(3).setInt(w, y);
+                return true;
+            }
+        } catch (Throwable ignored) { }
+        return false;
+    }
+
     /** Press a 1.14+ button (its press callback, whether or not it is active). */
     public static boolean click(Object w) {
         Object[] p = press(w);
@@ -246,7 +267,7 @@ public final class Leave {
     }
 
     /** Some field of the widget prints `key` (a translatable text's toString shows its key in quotes). */
-    static boolean says(Object w, String key) {
+    public static boolean says(Object w, String key) {
         for (Class<?> k = w.getClass(); k != null && k != Object.class; k = k.getSuperclass()) {
             for (Field f : k.getDeclaredFields()) {
                 if (Modifier.isStatic(f.getModifiers()) || f.getType().isPrimitive() || f.getType() == String.class) continue;
