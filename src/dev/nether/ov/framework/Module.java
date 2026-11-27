@@ -5,8 +5,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import dev.nether.ov.features.lyrics.Lyrics;
-import dev.nether.ov.features.lyrics.LyricsBar;
 import dev.nether.ov.game.Game;
 import dev.nether.ov.menu.Menu;
 import dev.nether.ov.ui.Gfx;
@@ -42,12 +40,13 @@ public abstract class Module {
             add(Setting.color("color", "Text color", "#EAEEF3").when(op));
             add(Setting.bool("chroma", "Rainbow text", false).when(op));
             add(Setting.bool("labels", "Show labels", true).when(op));
-            add(Setting.color("labelColor", "Label color", "#C9CDD4").when(op).when(() -> bool("labels")));
-            add(Setting.bool("shadow", "Text shadow", true).when(op));
+            // kept (defaults apply, old configs still read) but not offered: the look stays simple
+            add(Setting.color("labelColor", "Label color", "#C9CDD4").when(() -> false));
+            add(Setting.bool("shadow", "Text shadow", true).when(() -> false));
             add(Setting.bool("bg", "Background", true).when(op));
-            add(Setting.slider("bgAlpha", "Background opacity", 0.2, 0.95, 0.01, 0.45).when(op).when(() -> bool("bg")));
-            add(Setting.bool("accent", "Accent bar", false).when(op).when(() -> bool("bg")));
-            add(Setting.bool("border", "Outline", false).when(op).when(() -> bool("bg")));
+            add(Setting.slider("bgAlpha", "Opacity", 0.2, 0.95, 0.01, 0.45).when(op).when(() -> bool("bg")));
+            add(Setting.bool("accent", "Accent bar", false).when(() -> false));
+            add(Setting.bool("border", "Outline", false).when(() -> false));
             styleN = settings.size();
         }
     }
@@ -86,7 +85,7 @@ public abstract class Module {
      * the module's old default spot so the default HUD keeps its shape.
      */
     public String home() {
-        if (id.equals("lyrics")) return "tr"; // under Media Player
+        if (id.equals("karaoke")) return "tr"; // under Media Player
         return (dy < 0.34 ? "t" : dy > 0.66 ? "b" : "m") + (dx < 0.34 ? "l" : dx > 0.66 ? "r" : "c");
     }
     /** Layout of this frame ({@link Modules#place}): pixel scale and top-left in pixels; placed = laid out this frame. */
@@ -155,8 +154,8 @@ public abstract class Module {
         return k;
     }
 
-    /** HUD text in the Minecraft-style pixel face (Style > Minecraft font). Lyrics keep their own type. */
-    public boolean mcFont() { return hud && has("mcFont") && !(this instanceof Lyrics) && !(this instanceof LyricsBar) && bool("mcFont"); }
+    /** HUD text in the Minecraft-style pixel face (Style > Minecraft font). Karaoke drops the setting: lyrics keep their own type. */
+    public boolean mcFont() { return hud && has("mcFont") && bool("mcFont"); }
 
     /** Settings-page preview centred on (cx, cy) in the caller's current Gfx.s units. */
     public void preview(float cx, float cy) {

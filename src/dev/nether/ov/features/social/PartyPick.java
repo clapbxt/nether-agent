@@ -272,6 +272,52 @@ public final class PartyPick {
 
     private static long mtime(Path p) { try { return Files.getLastModifiedTime(p.resolve("level.dat")).toMillis(); } catch (Throwable t) { return 0; } }
 
+    private static final Map<String, String> worldIcons = new java.util.HashMap<>();
+    private static long creatingAt;
+    /** Create New World: 1 press the list's button, 2 pressed, 3 the create screen is up (cancelling it lands back on the title screen) */
+    private static int cstep;
+
+    /** Re-read the worlds' icons. */
+    public static void refreshWorlds() { worldIcons.clear(); }
+
+    /** The game's Create New World screen: through its own world list (the list's Create New World button is pressed). */
+    public static void createWorld() {
+        creatingAt = System.currentTimeMillis();
+        cstep = Game.legacy() ? 0 : 1;
+        MainMenu.openRaw(MainMenu.SINGLE, Game.screen());
+    }
+
+    /** Delete a world's folder (the selector asked first); true when it started. */
+    public static boolean deleteWorld(String folder) {
+        if (!isSave(folder)) return false;
+        worldIcons.remove(folder);
+        final Path dir = saves().resolve(folder);
+        new Thread(() -> {
+            try (java.util.stream.Stream<Path> st = Files.walk(dir)) {
+                for (Path p : (Iterable<Path>) st.sorted(java.util.Comparator.reverseOrder())::iterator) Files.delete(p);
+            } catch (Throwable t) { System.out.println("[nether-agent] delete world " + folder + ": " + t); }
+        }, "nether-delete-world").start();
+        return true;
+    }
+
+
+    /** The texture of a world's icon.png (what the game's world list shows), or null when it has none. */
+    public static String worldIcon(String folder) {
+        String k = worldIcons.get(folder);
+        if (k == null) {
+            k = "";
+            try {
+                Path f = saves().resolve(folder).resolve("icon.png");
+                if (isSave(folder) && Files.isRegularFile(f)) {
+                    java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(f.toFile());
+                    if (img != null) { k = "party.world." + Integer.toHexString(folder.hashCode()); Gfx.texture(k, img, true); }
+                }
+            } catch (Throwable ignored) { }
+            worldIcons.put(folder, k);
+        }
+        return k.isEmpty() || !Gfx.hasTexture(k) ? null : k;
+    }
+
     // ---------------------------------------------------------------- opening the picked world (party start)
 
     /** The party starts on our world: open it, then host it for the party. */
@@ -279,12 +325,36 @@ public final class PartyPick {
         if (!isSave(folder)) { Toast.show("Couldn't find the world " + folder); return; }
         hostUntil = System.currentTimeMillis() + 90_000;
         if (Game.player0() != null) return; // already in a world (it is the one: we started it)
+        open(folder);
+    }
+
+    /** Open a world from the title screen like the game would (list, its entry selected, Play Selected World). */
+    public static void open(String folder) {
+        if (!isSave(folder)) { Toast.show("Couldn't find the world " + folder); return; }
         if (Game.legacy()) {
             final Object mc = Game.mc();
             final Runnable load = () -> Game.call(mc, Game.l("a", "func_71371_a"), folder, folder, null); // launchIntegratedServer
             new Thread(() -> Game.call(mc, Game.l("a", "func_152344_a"), load), "nether-party-world").start();
             return;
         }
+        // 1.19+: the game's own WorldOpenFlows.openWorld(name, onCancel), straight into the world (it still asks about backups / upgrades)
+        final Object mc = Game.mc();
+        try {
+            final Object flows = Game.call(mc, "method_41735"); // createWorldOpenFlows
+            if (flows != null) for (java.lang.reflect.Method m : flows.getClass().getDeclaredMethods()) {
+                Class<?>[] p = m.getParameterTypes();
+                if (p.length != 2 || p[0] != String.class || p[1] != Runnable.class || m.getReturnType() != void.class || Modifier.isStatic(m.getModifiers())) continue;
+                m.setAccessible(true);
+                final java.lang.reflect.Method open = m;
+                Runnable go = () -> {
+                    try { open.invoke(flows, folder, (Runnable) () -> { }); System.out.println("[nether-agent] opening world " + folder); }
+                    catch (Throwable t) { System.out.println("[nether-agent] open world " + folder + ": " + t); }
+                };
+                new Thread(() -> Game.call(mc, "execute", go), "nether-open-world").start();
+                return;
+            }
+        } catch (Throwable t) { System.out.println("[nether-agent] open world: " + t); }
+        // otherwise through the world list: its entry selected, Play Selected World pressed (tick / openStep)
         opening = folder;
         openingAt = System.currentTimeMillis();
         queued = false;
@@ -295,6 +365,18 @@ public final class PartyPick {
     /** Every frame: finish opening (world list -> select the entry -> press its select button), then host it. */
     static void tick() {
         long now = System.currentTimeMillis();
+        if (cstep != 0) {
+            Object s = Game.screen();
+            if (Game.player0() != null || MainMenu.title && cstep > 1 || now - creatingAt > (cstep == 1 ? 10_000 : 600_000)) cstep = 0;
+            else if (cstep == 1 && worldList(s)) {
+                final Object b = Leave.button(Leave.widgets(s), "selectWorld.create"), mc = Game.mc();
+                if (b != null) {
+                    cstep = 2;
+                    new Thread(() -> Game.call(mc, "execute", (Runnable) () -> Leave.click(b)), "nether-create-world").start();
+                }
+            } else if (cstep == 2 && s != null && !worldList(s)) cstep = 3;
+            else if (cstep == 3 && worldList(s)) { cstep = 0; MainMenu.toTitle(); } // cancelled: back to our lobby, not the game's world list
+        }
         if (opening != null) {
             Object s = Game.screen();
             if (now - openingAt > 20_000) { Toast.show("Couldn't open " + opening + " for the party"); opening = null; hostUntil = 0; }

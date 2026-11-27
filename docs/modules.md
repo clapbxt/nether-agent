@@ -10,8 +10,9 @@ you don't write any launcher UI.
    new package with a `package-info.java`), with its id, name, group (`HUD`, `Visual` or
    `Utility`), a one-sentence description a player understands, its default state and HUD position.
 2. Give every `Setting` a `hint` (one plain sentence) and a sensible default. Implement `icon()` for its card.
-3. Register it in `framework/Modules.java`. Add its id to the `PVP` set in `menu/Menu.java` if it belongs on the PvP
-   tab.
+3. Register it in `framework/Modules.java`. A HUD box (`hud` true) is a **widget**: it is listed only in the menu's HUD
+   tab and the HUD editor's ADD WIDGET list (never with an on / off switch; "on screen" is its `enabled` flag, set by
+   the editor). Add its id to the `PVP` set in `menu/Menu.java` to group it under PvP there.
 4. Read game state only through `game.Data` / `game.Game`, and draw only through `ui.Gfx`. Never use `platform`
    classes directly from a feature.
 5. Run `agent\gradlew.bat -p agent build`. The launcher picks the module up from `schema.json` on its next build.

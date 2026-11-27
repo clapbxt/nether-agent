@@ -50,7 +50,7 @@ public final class ModIcons {
             {"armor", "minecraft:diamond_chestplate", "minecraft:iron_chestplate"}, {"items", "minecraft:ender_pearl"},
             {"clock", "minecraft:clock_00"}, {"compass", "minecraft:compass_00"}, {"coords", "minecraft:map", "minecraft:filled_map"},
             {"waypoints", "minecraft:recovery_compass_00", "minecraft:oak_sign", "minecraft:sign"}, {"zoom", "minecraft:spyglass"},
-            {"fullbright", "minecraft:torch"}, {"tnttimer", "minecraft:tnt_side", "minecraft:tnt"}, {"speed", "effect:speed", "minecraft:sugar"}, {"media", "minecraft:music_disc_cat"},
+            {"fullbright", "minecraft:torch"}, {"tnttimer", "minecraft:tnt_side", "minecraft:tnt"}, {"speed", "effect:speed", "minecraft:sugar"}, {"media", "minecraft:music_disc_cat"}, {"karaoke", "minecraft:music_disc_13"},
             {"lyrics", "minecraft:writable_book"}, {"selftag", "minecraft:name_tag"}, {"bgreload", "minecraft:painting"}, {"screenshots", "minecraft:item_frame"},
             {"freelook", "minecraft:ender_eye"}, {"fireview", "minecraft:fire_0", "minecraft:fire_layer_0"},
             {"shieldview", "shield:face"}, {"rideview", "minecraft:saddle"}};

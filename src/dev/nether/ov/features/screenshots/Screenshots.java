@@ -466,7 +466,7 @@ public final class Screenshots extends Module {
         // header
         Gfx.text(Gfx.HEAD, 16, x + 24, y + 34, Th.tx, "SCREENSHOTS", false, 1.4f);
         String sub = shots.size() == 1 ? "1 PICTURE" : shots.size() + " PICTURES";
-        Gfx.text(Gfx.MONO, 9, x + 34 + Gfx.width(Gfx.SEMI, 15, "SCREENSHOTS", 1.4f) + 14, y + 35, Th.mut, sub, false, 1.4f);
+        Gfx.text(Gfx.MONO, 9, x + 34 + Gfx.width(Gfx.HEAD, 16, "SCREENSHOTS", 1.4f) + 14, y + 35, Th.mut, sub, false, 1.4f);
         if (!pg) { // on the title screen the bar is the way back
             boolean ch = Menu.in(x + w - 44, y + 18, 28, 28);
             float ct = Menu.an("ssx", ch);

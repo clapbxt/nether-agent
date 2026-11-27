@@ -14,7 +14,7 @@ check a server's rules before turning them on.
 | FPS, CPS, Ping, Keystrokes, Stopwatch | own data |
 | Coordinates, Compass, Waypoints (incl. death point), Speed, Day Counter, Clock, Session, Memory (coordinates hide themselves where the server hides F3 data) | own data |
 | Potion Effects, Armor Status, Server Address | own data |
-| Media Player, Lyrics | your PC's media session |
+| Music, Media Player, Karaoke | your PC's media session |
 | Hand View Editor (default off) | looks only: where your own first-person hand and item sit |
 | Custom Sky (default on) | looks only: skies from your own resource packs (OptiFine / MCPatcher format) |
 | TNT Timer (default off) | the fuse the game already sends for every lit TNT, shown above it |

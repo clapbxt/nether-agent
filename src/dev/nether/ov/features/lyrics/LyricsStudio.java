@@ -15,17 +15,18 @@ import dev.nether.ov.ui.Sfx;
 import dev.nether.ov.ui.Th;
 
 /**
- * The Lyrics module's settings page (menu > Lyrics) and its live world preview, after LyricsFlow's settings screen: a
+ * The Music module's settings page (menu > Music) and its live world preview, after LyricsFlow's settings screen: a
  * preview stage with the track on top, pages under it, and every visual choice as a card drawn by the lyric renderer
- * itself (theme, text style, font, show on screen / in world, world layout, screen layout, appear, disappear, saved
- * looks), so a card is exactly what the lyrics will look like. "Preview in world" steps the menu aside into a sheet: the
- * lyrics run in the real world (a demo song while no music plays) as the settings change.
+ * itself (theme, text style, font, layout: Air, Sky, Walls, Row, Lines or Screen, appear, disappear, saved looks), so a
+ * card is exactly what the lyrics will look like. The on-screen panels are HUD widgets (Media Player, Karaoke).
+ * "Preview in world" steps the menu aside into a sheet: the lyrics run in the real world (a demo song while no music
+ * plays) as the settings change.
  */
 public final class LyricsStudio {
     private LyricsStudio() {}
 
     private static final String[] TABS = {"Look", "Font", "Display", "Motion", "Sync", "Profiles"};
-    private static final String[] FOLDS = {"Layout", "Themes & type", "Animation & effects", "Sync & controls", "Profiles & reset"};
+    private static final String[] FOLDS = {"Layout", "Themes & type", "Animation & effects", "Sync & controls", "Player & keys", "Profiles & reset"};
     private static final String WORD = "Tonight", SHORT = "Lights come up tonight";
     private static int tab = Integer.getInteger("nether.lyricsTab", 0); // dev: open on a page
     private static float contentH = 600, liveH = 600, liveScroll;
@@ -87,16 +88,14 @@ public final class LyricsStudio {
         if (Menu.in(x + w - bw, y + (h - 28) / 2, bw, 28)) Menu.tip = "Show the full preview stage";
     }
 
-    /** The preview stage (the lyrics as set: in the world, or the on-screen panel) and the track beside it. */
+    /** The preview stage (the lyrics as set in the world) and the track beside it. */
     private static void stage(Lyrics L, float x, float y, float w, float h) {
         float rw = Math.min(260, w * 0.36f), sw = w - rw - 10;
-        boolean world = L.str("mode").equals("In world");
         box(x, y, sw, h);
         int[] clip = Gfx.clipIn(x, y, sw, h);
-        if (world) worldPreview(L, Lyrics.pvLayout(L.str("wStyle")), Lyrics.PV_TEXT, x, y + 4, sw, h - 4, null);
-        else panelPreview(L, x, y, sw, h, null);
+        worldPreview(L, Lyrics.pvLayout(L.str("wStyle")), Lyrics.PV_TEXT, x, y + 4, sw, h - 4, null);
         Gfx.reclip(clip);
-        tag(x + 10, y + 10, world ? "IN WORLD  ·  " + L.str("wStyle").toUpperCase(Locale.ROOT) : "ON SCREEN  ·  " + L.str("panelStyle").toUpperCase(Locale.ROOT));
+        tag(x + 10, y + 10, (L.str("wStyle").equals("Screen") ? "ON SCREEN" : "IN WORLD  ·  " + L.str("wStyle").toUpperCase(Locale.ROOT)));
         if (Menu.button("lsslim", "COLLAPSE", x + sw - 86, y + 8, 78, 22, false)) setSlim(L, true);
         if (Menu.in(x + sw - 86, y + 8, 78, 22)) Menu.tip = "Fold the preview to a strip for more room below";
 
@@ -163,12 +162,16 @@ public final class LyricsStudio {
 
     /** The page under the tabs from y; returns the y after it. */
     private static float content(Lyrics L, float x, float y, float w) {
-        boolean world = L.str("mode").equals("In world");
         switch (tab) {
             case 0: { // Look
-                y = section("Theme", "Text colour and the two glow colours of the Neon split", x, y, w);
-                y = cards(L, "preset", Lyrics.themeNames(), null, x, y, w, cols(w, 132, 3), 52, (v, cx, cy, cw, ch) -> still(L, WORD, cx, cy, cw, ch, "preset", v));
-                y = rows(L, x, y, w, "lyricsColor", "glowColor", "glowColor2") + 10;
+                y = section("Colours", "Build your own: the preview shows exactly how the lyrics draw", x, y, w);
+                float ph = 92;
+                box(x, y, w, ph);
+                int[] pclip = Gfx.clipIn(x, y, w, ph);
+                pk.clear();
+                L.preview(Lyrics.PV_STILL, WORD, (x + w / 2) * Gfx.s, (y + ph / 2) * Gfx.s, (w - 24) * Gfx.s, ph * Gfx.s, 40 * Gfx.s, pk);
+                Gfx.reclip(pclip);
+                y = rows(L, x, y + ph + 12, w, "preset", "lyricsColor", "glowColor", "glowColor2", "fillMode", "fillColor2") + 10;
                 y = section("Text style", null, x, y, w);
                 y = cards(L, "textStyle", Lyrics.TEXT_STYLES, Lyrics.TEXT_CAPTIONS, x, y, w, cols(w, 150, 4), 64,
                     (v, cx, cy, cw, ch) -> still(L, WORD, cx, cy, cw, ch, "textStyle", v));
@@ -180,28 +183,12 @@ public final class LyricsStudio {
                 return rows(L, x, y, w, "upper", "opacity", "worldSize");
             }
             case 2: { // Display
-                y = section("Show lyrics", null, x, y, w);
-                y = cards(L, "mode", new String[] {"On screen", "In world"}, new String[] {"On screen  ·  a karaoke panel on your HUD", "In world  ·  words float where you look"}, x, y, w, 2, 104, (v, cx, cy, cw, ch) -> {
-                    pk.clear(); pk.put("mode", v);
-                    if (v.equals("On screen")) panelPreview(L, cx, cy, cw, ch, pk);
-                    else worldPreview(L, Lyrics.pvLayout(L.str("wStyle")), SHORT, cx, cy, cw, ch, pk);
-                });
-                if (world) {
-                    y = section("World layout", null, x, y, w);
-                    y = cards(L, "wStyle", Lyrics.WORLD_STYLES, Lyrics.WORLD_CAPTIONS,
-                        x, y, w, cols(w, 190, 3), 92, (v, cx, cy, cw, ch) -> { pk.clear(); pk.put("wStyle", v); worldPreview(L, Lyrics.pvLayout(v), SHORT, cx, cy, cw, ch, pk); });
-                    return rows(L, x, y, w, "airMode", "pairWords", "dist", "worldSize", "follow", "viewLock", "musicNotes", "worldIntro");
-                }
-                y = section("Screen layout", null, x, y, w);
-                y = cards(L, "panelStyle", new String[] {"Karaoke", "Focus", "Minimal"}, null, x, y, w, 3, 100,
-                    (v, cx, cy, cw, ch) -> { pk.clear(); pk.put("panelStyle", v); pk.put("mode", "On screen"); panelPreview(L, cx, cy, cw, ch, pk); });
-                return rows(L, x, y, w, "lines", "align", "width", "songInfo", "albumArt", "trackProgress", "trackTime", "playerControls", "paused");
+                y = section("Where lyrics show", "Words land in the world, or float across your screen", x, y, w);
+                y = rows(L, x, y, w, "wStyle", "airMode", "pairWords", "dist", "worldSize", "follow", "viewLock", "musicNotes", "worldIntro");
+                Gfx.text(Gfx.UI, 10.5f, x, y + 14, Th.mut, Menu.fit("A now-playing card or karaoke panel on your HUD: add Media Player or Karaoke in the HUD editor.", Gfx.UI, 10.5f, w, 0));
+                return y + 30;
             }
             case 3: { // Motion
-                if (!world) {
-                    Gfx.text(Gfx.UI, 11, x, y + 14, Th.mut, Menu.fit("Appear, disappear and the effects below apply to lyrics in the world (Display > In world).", Gfx.UI, 11, w, 0));
-                    return rows(L, x, y + 30, w, "glow", "beatGlow");
-                }
                 y = section("Appear", "How each word arrives as it is sung", x, y, w);
                 y = cards(L, "appear", new String[] {"Fade", "Rise", "Pop", "Neon"}, null, x, y, w, cols(w, 150, 2), 70,
                     (v, cx, cy, cw, ch) -> { pk.clear(); pk.put("appear", v); worldPreview(L, Lyrics.PV_ROW, "Here it comes", cx, cy, cw, ch, pk); });
@@ -228,7 +215,9 @@ public final class LyricsStudio {
                         Config.set(L.id, "offset", Math.max(-2000.0, Math.min(2000.0, L.num("offset") + st[i])));
                 }
                 y += bh + 8;
-                return rows(L, x, y, w, "offset", "laterKey", "earlierKey", "refetch", "panelKey");
+                y = rows(L, x, y, w, "offset", "laterKey", "earlierKey", "refetch", "panelKey");
+                y = section("Player", "For Music and the Media Player and Karaoke widgets", x, y + 6, w);
+                return rows(L, x, y, w, "source", "playKey", "nextKey", "prevKey");
             }
             default: { // Profiles
                 y = section("Saved looks", "Theme, font, layout and effects in one click", x, y, w);
@@ -244,7 +233,7 @@ public final class LyricsStudio {
                     if (look != null) L.preview(Lyrics.PV_STILL, WORD, (cx + cw / 2) * Gfx.s, (y + 3 + ch / 2) * Gfx.s, (cw - 20) * Gfx.s, ch * Gfx.s, Math.min(22, ch * 0.36f) * Gfx.s, look);
                     else Gfx.textC(Gfx.UI, 11, cx + cw / 2, y + 3 + ch / 2, Th.mut, "Empty", 0);
                     Gfx.reclip(clip);
-                    Gfx.text(Gfx.SEMI, 11, cx + 10, y + ch + 14, Th.tx, "Look " + slot + (look != null ? "  ·  " + look.getOrDefault("preset", "") + ", " + look.getOrDefault("font", "") : ""));
+                    Gfx.text(Gfx.SEMI, 11, cx + 10, y + ch + 14, Th.tx, "Look " + slot + (look != null ? "  ·  " + look.getOrDefault("font", "") : ""));
                     float bw = (cw - 28) / 3, by = y + ch + 30;
                     String[] act = {"saveProfile", "loadProfile", "deleteProfile"}, lab = {"SAVE", "LOAD", "DELETE"};
                     for (int k = 0; k < 3; k++) {
@@ -292,10 +281,8 @@ public final class LyricsStudio {
             if (Menu.fbutton("lsdone", "DONE", px + 20, fy, 96, 30, true)) Menu.live = null;
             if (Menu.fbutton("lsreset", "RESET", px + 124, fy, 86, 30, false)) { ColorPicker.close(); L.run("resetLyrics"); }
 
-            boolean world = L.str("mode").equals("In world");
             Media.State s = Media.cur;
-            String note = !on ? "Turn Lyrics on to see your changes"
-                : !world ? "The lyrics panel is on your HUD  ·  move it in the HUD editor"
+            String note = !on ? "Turn Music on to see your changes"
                 : s != null && s.playing ? "Showing the song playing  ·  look around"
                 : "A demo song plays in the world  ·  look around";
             float cx = px + pw + (Menu.W - px - pw) / 2, nw = Gfx.width(Gfx.UI, 12, note) + 36;
@@ -359,13 +346,6 @@ public final class LyricsStudio {
     private static void worldPreview(Lyrics L, int layout, String text, float x, float y, float w, float h, Map<String, Object> over) {
         float s = Gfx.s;
         L.preview(layout, text, (x + w / 2) * s, (y + h / 2) * s, (w - 20) * s, h * s, Math.min(26, h * 0.27f) * s, over);
-    }
-
-    /** The on-screen lyrics panel itself (sample lines, or the song playing), fitted into (x, y, w, h). */
-    private static void panelPreview(Lyrics L, float x, float y, float w, float h, Map<String, Object> over) {
-        float[] size = L.previewPanel(0, 0, 1, over, false);
-        float k = Math.min(1.3f, Math.min((w - 16) / Math.max(1, size[0]), (h - 12) / Math.max(1, size[1])));
-        L.previewPanel(x + (w - size[0] * k) / 2, y + (h - size[1] * k) / 2, k, over, true);
     }
 
     /**

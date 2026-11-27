@@ -49,7 +49,7 @@ public final class MainMenu {
     private static final String[] LAYOUTS = {"Lobby", "Center", "Left", "Bottom"}, STYLES = {"Solid", "Outline", "Minimal"}, LOGOS = {"Wordmark", "Mark", "Hidden"};
 
     public static final Module MODULE = new Module("menu", "Main Menu", "Visual",
-        "Nether title screen: backgrounds, layouts, quick join and your account.", false, true, 0, 0) {
+        "Nether title screen: backgrounds, layouts and your account.", false, true, 0, 0) {
         @Override public boolean hidden() { return true; }
         @Override public boolean wantedOn() { return true; }
     };
@@ -68,16 +68,11 @@ public final class MainMenu {
         m.add(Setting.choice("logo", "Logo", "Wordmark", LOGOS));
         m.add(Setting.bool("splash", "Splash text", true));
         java.util.function.BooleanSupplier sp = () -> m.bool("splash");
-        m.add(Setting.choice("splashSource", "Splashes", "Minecraft", Splashes.SOURCES).hint("Mine: only yours. Mix: yours half the time, Minecraft's otherwise.").when(sp));
+        m.add(Setting.choice("splashSource", "Splashes", "Nether", Splashes.SOURCES).hint("Nether: our own, updated online. Mine: only yours. Mix: all of them.").when(sp));
         m.add(Setting.bool("holidays", "Holiday splashes", true).hint("Minecraft's Christmas, New Year and Halloween splashes still show on their day.").when(sp).when(() -> !m.str("splashSource").equals("Minecraft")));
         m.add(Setting.action("splashEdit", "Your splashes", "EDIT", Splashes::show).hint("Add, edit or remove, or restore Minecraft's. Saved in client/splashes.txt.").when(sp));
         m.add(Setting.bool("clock", "Clock", true).hint("Follows the Clock module's 24-hour setting."));
         m.add(Setting.bool("account", "Account", true).hint("Your name and skin head (skin from Mojang's profile service)."));
-        m.add(Setting.header("Quick join"));
-        m.add(Setting.slider("servers", "Servers shown", 0, 5, 1, 3).hint("From your multiplayer list, last played first. 0 hides the card."));
-        m.add(Setting.bool("ping", "Live server status", true).hint("Pings the listed servers for players and latency, like the multiplayer screen."));
-        m.add(Setting.header("Pause screen"));
-        m.add(Setting.bool("pauseButton", "Nether button", true));
     }
 
     private static Class<?> cTitle, cPause, cMods;
@@ -95,6 +90,7 @@ public final class MainMenu {
     private static int shownGen = -1;
 
     static String shownSplash() {
+        Splashes.online(); // polls the online list; a change bumps gen
         String src = Splashes.source();
         if (shownGen != Splashes.gen || shownFor != splash || !src.equals(shownSrc)) {
             shownSrc = src;
@@ -179,7 +175,11 @@ public final class MainMenu {
                 units(Gfx.base);
                 if (packButton("Get Packs", false)) PackBrowser.show();
                 if (packButton("Combine", true)) PackMixer.show();
-            } else if (cPause != null && cPause.isInstance(s) && !Input.menuOpen && MODULE.bool("pauseButton")) {
+            } else if (cPause != null && cPause.isInstance(s) && Input.menuOpen && !legacy) {
+                // a Nether page is open over the pause screen: the player stays paused, vanilla's pause screen just isn't shown
+                for (Object w : Leave.widgets(s)) Leave.place(w, -4000, -4000);
+                hiddenPause = s;
+            } else if (cPause != null && cPause.isInstance(s) && !Input.menuOpen) {
                 // F3+Esc pauses without the menu (screenshots): no button either
                 if (legacy || !Boolean.FALSE.equals(Game.fld(s, "field_19319"))) {
                     pause = true;
@@ -187,8 +187,10 @@ public final class MainMenu {
                     float W = Gfx.fbW / Gfx.s, H = Gfx.fbH / Gfx.s;
                     modal = Party.modal(W, H);
                     tip = null;
+                    if (hiddenPause == s) { hiddenPause = null; Game.setScreen(s); } // back from a Nether page: vanilla rebuilds its buttons
+                    if (legacy || !pauseButtons(s)) {
                     float cx = 12 + chipW("NETHER", keyName(), true) + 8;
-                    if (chip("pause", 12, 12, 32, "NETHER", keyName(), true, false, false)) Input.setMenu(true);
+                    if (chip("pause", 12, 12, 32, "NETHER", keyName(), true, false, false)) Menu.openAt(Menu.lastCat);
                     // singleplayer: invite friends into this world (WorldShare)
                     if (WorldShare.server() != null) {
                         boolean on = WorldShare.sharing();
@@ -197,8 +199,9 @@ public final class MainMenu {
                     }
                     // the party, in the world too: members, invite, kick, volume, voice
                     Party.chip(cx, 12, 32);
-                    WorldShare.card(W, 12);
                     galleryButton(s);
+                    }
+                    WorldShare.card(W, 12);
                     Party.pause(W, H);
                     if (tip != null) tooltip(W, H);
                 }
@@ -208,6 +211,124 @@ public final class MainMenu {
             Gfx.round = r0;
             Gfx.s = Gfx.base;
         }
+    }
+
+    /** the pause screen whose widgets were moved away while a Nether page was open */
+    private static Object hiddenPause;
+
+    /**
+     * 1.14+ pause screen as one column of big buttons: Back to Game, Nether, then every other wide button the screen
+     * has (Mod Menu's Mods, a server's custom buttons) in its own order, Save and Quit / Disconnect last, so nothing
+     * can sit on top of the leave button. Square buttons down both sides (left: Options, Wardrobe; right, counted up from
+     * the leave row: Screenshots, Edit HUD, Invite, Party) and every small vanilla button (Advancements, Statistics, LAN /
+     * World Options, Feedback, Bugs, Player Reporting, Friends, Server Links) as a square in the bottom left; those
+     * widgets are moved off screen and pressed through their callbacks. False when the buttons can't be found.
+     */
+    private static float[] vanillaTip;
+
+    private static boolean pauseButtons(Object s) {
+        java.util.List<Object> ws = Leave.widgets(s);
+        Object back = Leave.button(ws, "menu.returnToGame"), quit = Leave.button(ws, "menu.returnToMenu");
+        if (quit == null) quit = Leave.button(ws, "menu.disconnect");
+        int[] br = back == null ? null : Leave.rect(back);
+        if (br == null || quit == null) return false;
+        Object opts = Leave.button(ws, "menu.options");
+        java.util.List<Object[]> wide = new java.util.ArrayList<>(), extras = new java.util.ArrayList<>();
+        boolean friends = false;
+        for (Object w : ws) {
+            if (w == back || w == quit || w == opts || !Leave.isButton(w)) continue;
+            int[] r = Leave.rect(w);
+            String[] x = pauseExtra(w);
+            if (x == null && r != null && r[2] >= 150) { wide.add(new Object[] {w, r[1]}); continue; }
+            if (x == null && r == null) continue;
+            if (x == null) x = new String[] {"menu", "More"};
+            friends |= x[0].equals("friends");
+            extras.add(new Object[] {w, x[0], x[1]});
+        }
+        wide.sort((p, q) -> Integer.compare((Integer) p[1], (Integer) q[1]));
+        for (Object w : new Object[] {opts}) if (w != null) Leave.place(w, -4000, -4000);
+        for (Object[] e : extras) Leave.place(e[0], -4000, -4000);
+        int row = 3;
+        vanillaTip = null;
+        for (Object[] w : wide) {
+            int wy = br[1] + 24 * (row++ - 1);
+            Leave.place(w[0], br[0], wy);
+            // the game draws this button's tooltip over everything of ours: keep our square buttons out of its way
+            if (!Input.menuOpen && MX >= br[0] * 2 && MX < (br[0] + br[2]) * 2 && MY >= wy * 2 && MY < (wy + 20) * 2) vanillaTip = new float[] {MX - 4, MY, 380, 150};
+        }
+        int qr = Math.max(4, row);
+        Leave.place(quit, br[0], br[1] + 24 * (qr - 1));
+        float W = Gfx.fbW / Gfx.s, H = Gfx.fbH / Gfx.s;
+        float sz = 40, bx = br[0] * 2, by = br[1] * 2, bw = br[2] * 2, rx = bx + bw + 8, lx = bx - 8 - sz;
+        if (wideButton(bx, by + 48, bw, "Nether")) Menu.openAt(Menu.lastCat);
+        // left: the game's options, wardrobe
+        if (opts != null && squareButton("po", lx, by, sz, "options", "Options")) Leave.click(opts);
+        if (squareButton("pw", lx, by + 48, sz, "wardrobe", "Wardrobe")) Menu.openAt(Menu.T_WARDROBE);
+        // right, upward from the leave row: screenshots, edit HUD, invite, party
+        float ry = by + 48 * (qr - 1);
+        if (Modules.SHOTS.enabled() && squareButton("pg", rx, ry, sz, "screenshots", "Screenshots")) Screenshots.show();
+        if (squareButton("ph", rx, ry - 48, sz, "hudeditor", "Edit HUD")) Menu.openHudEditor();
+        if (WorldShare.server() != null && squareButton("pi", rx, ry - 96, sz, "invite", WorldShare.sharing() ? "Sharing this world" : "Invite friends")) WorldShare.show();
+        if (Party.ready()) {
+            Party.anchor(rx, ry - 144, sz, sz);
+            if (squareButton("pp", rx, ry - 144, sz, "party", Party.size() > 1 ? "Party  ·  " + Party.size() : "Party")) Party.toggleDrawer();
+        }
+        // bottom left: every small vanilla button, then our Friends when the game has none
+        int per = Math.max(1, (int) ((W * 0.5f - 16) / (sz + 8))), n = 0;
+        for (Object[] e : extras) {
+            float cx = 16 + (n % per) * (sz + 8), cy = H - 16 - sz - (n / per) * (sz + 8);
+            if (squareButton("px" + n, cx, cy, sz, (String) e[1], (String) e[2])) Leave.click(e[0]);
+            n++;
+        }
+        if (!friends && squareButton("pf", 16 + (n % per) * (sz + 8), H - 16 - sz - (n / per) * (sz + 8), sz, "friends", "Friends")) Menu.openAt(Menu.T_FRIENDS);
+        return true;
+    }
+
+    /** {icon, tooltip} of a small vanilla pause button by its text key (or class, for the icon-only Friends button); null when unknown. */
+    private static String[] pauseExtra(Object w) {
+        String[][] m = {{"gui.advancements", "advancements", "Advancements"}, {"gui.stats", "stats", "Statistics"}, {"menu.shareToLan", "lan", "Open to LAN"},
+            {"options.worldOptions.button", "home", "World options"}, {"menu.sendFeedback", "chat", "Give feedback"}, {"menu.reportBugs", "bug", "Report bugs"},
+            {"menu.feedback", "chat", "Feedback"}, {"menu.playerReporting", "report", "Player reporting"}, {"menu.server_links", "server", "Server links"}};
+        for (String[] e : m) if (Leave.says(w, "'" + e[0] + "'")) return new String[] {e[1], e[2]};
+        return w.getClass().getSimpleName().contains("Friends") ? new String[] {"friends", "Friends"} : null;
+    }
+
+    /** A square button in the game's own style with an icon (units, 2 per GUI px); true when clicked. */
+    private static boolean squareButton(String id, float x, float y, float sz, String icon, String tipText) {
+        float[] z = vanillaTip;
+        if (z != null && x < z[0] + z[2] && x + sz > z[0] && y < z[1] + z[3] && y + sz > z[1]) return false; // under the game's tooltip
+        float a0 = Gfx.alpha;
+        Gfx.alpha = 1; // drawn like the game's own buttons, never faded
+        boolean hov = over(x, y, sz, sz);
+        if (!Vanilla.button(x, y, sz, hov)) {
+            Gfx.rect(x, y, sz, sz, 0, hov ? 0xFF6F6F6F : 0xFF4A4A4A);
+            Gfx.ring(x, y, sz, sz, 0, 2, hov ? 0xFFFFFFFF : 0xFF000000);
+        }
+        ModIcons.draw(icon, x + sz / 2 - 12, y + sz / 2 - 12, 24, legacy && hov ? 0xFFFFFFA0 : 0xFFFFFFFF);
+        box(x, y, sz, sz);
+        Gfx.alpha = a0;
+        if (hov && tipText != null) tip(tipText);
+        return hit(x, y, sz, sz);
+    }
+
+    /** A full-width button in the game's style with the fireball mark left of the label (units); true when clicked. */
+    private static boolean wideButton(float x, float y, float w, String label) {
+        float a0 = Gfx.alpha;
+        Gfx.alpha = 1;
+        boolean hov = over(x, y, w, 40), vf = Vanilla.font();
+        if (!Vanilla.button(x, y, w, hov)) {
+            Gfx.rect(x, y, w, 40, 0, hov ? 0xFF6F6F6F : 0xFF4A4A4A);
+            Gfx.ring(x, y, w, 40, 0, 2, hov ? 0xFFFFFFFF : 0xFF000000);
+        }
+        float tw = vf ? Vanilla.width(label) : Gfx.width(Gfx.SEMI, 11, label);
+        float cx = x + (w - (16 + 8 + tw)) / 2;
+        mark(cx, y + (40 - 18.9f) / 2, 16);
+        int col = legacy && hov ? 0xFFFFFFA0 : 0xFFFFFFFF;
+        if (vf) Vanilla.text(label, cx + 24, y + 12, col, true);
+        else Gfx.text(Gfx.SEMI, 11, cx + 24, y + 20, col, label);
+        box(x, y, w, 40);
+        Gfx.alpha = a0;
+        return hit(x, y, w, 40);
     }
 
     private static int footerVer = -1;
@@ -390,7 +511,7 @@ public final class MainMenu {
     // ---------------------------------------------------------------- title screen
 
     private static void drawTitle(int fbW, int fbH, Object screen) {
-        float k = Math.min(Gfx.base, Math.min(fbW / 640f, fbH / 480f)); // follows GUI scale; always at least 640 x 480 units
+        float k = Math.min(Math.max(Gfx.base, 1f), Math.min(fbW / 640f, fbH / 480f)); // follows GUI scale (never below 2: labels have a 9 px floor); always at least 640 x 480 units
         units(k);
         float W = fbW / k, H = fbH / k;
         // content eases in when the screen appears (calm mode: at once); early clicks are ignored
@@ -496,11 +617,10 @@ public final class MainMenu {
             Gfx.text(Gfx.UI, 11, 24, top + 22 + rise, Gfx.a(Gfx.ICE, 0.7f), sp);
         }
         float pw = 250, px = W - 16 - pw, bottom = H - 44;
-        float colTop = party ? bottom - 96 - 8 - 30 : bottom - 112;
-        float sx = 230, sw = party ? W - 16 - sx : Math.max(220, W - 16 - pw - 12 - sx);
+        float colTop = party ? bottom - 104 - 8 - 58 - 4 : bottom - 112; // the party card + the game mode tile above it
+        float sx = Math.min(party ? 16 : 230, (W - 220) / 2), sw = W - 2 * sx; // the lineup is centred on the window
         float stageBottom = party ? colTop - 10 : H - 52;
         if (MODULE.bool("partyStage")) Party.stage(sx, top + 24, sw, stageBottom - top - 24, scr);
-        if (!party) QuickJoin.card(24, bottom, Math.min(240, sx - 24 - 12 + 8), top + 60, scr);
         playBlock(px, bottom, pw, scr, party);
         footer(W, H, false);
         // the bar before the party panels: its PARTY chip toggles the drawer, which closes on clicks elsewhere
@@ -517,56 +637,38 @@ public final class MainMenu {
         if ("1".equals(System.getProperty("nether.titlePanel"))) { System.clearProperty("nether.titlePanel"); panelOpen = true; }
         String pg = System.getProperty("nether.titlePage"); // dev: -Dnether.titlePage=<0..5> opens that page once settled
         if (pg != null && t >= 1 && (System.nanoTime() - shownAt) > 2e9) { System.clearProperty("nether.titlePage"); TitleNav.go(Integer.parseInt(pg)); }
-        if ("1".equals(System.getProperty("nether.playModes"))) { System.clearProperty("nether.playModes"); modesOpen = true; }
+        if ("1".equals(System.getProperty("nether.playModes"))) { System.clearProperty("nether.playModes"); Party.pick(PartyPick.SERVER, null); }
     }
 
     // ---------------------------------------------------------------- PLAY (bottom right)
 
-    private static boolean modesOpen;
-    private static float modesA;
-
-    /** Modes: {key, title, subtitle}; key "single", "multi" or "srv:<address>". */
-    private static java.util.List<String[]> modes() {
-        java.util.List<String[]> l = new java.util.ArrayList<>();
-        l.add(new String[] {"single", "Singleplayer", "Your worlds"});
-        l.add(new String[] {"multi", "Multiplayer", "Server list"});
-        int n = 0;
-        for (String[] s : QuickJoin.list()) {
-            if (n++ >= 3) break;
-            l.add(new String[] {"srv:" + s[1], s[0].isEmpty() ? s[1] : s[0], s[1]});
-        }
-        return l;
-    }
-
+    /** What PLAY starts: {key, kind, name}. key: single / multi (the game's lists), world:<folder> or srv:<address> (the selector's pick). */
     private static String[] mode() {
         String k = Config.str("menu", "playMode", "single");
-        for (String[] m : modes()) if (m[0].equals(k)) return m;
-        return modes().get(0);
+        if (k.startsWith("world:")) return new String[] {k, "world", Config.str("menu", "playName", k.substring(6))};
+        if (k.startsWith("srv:")) return new String[] {k, "server", Config.str("menu", "playName", k.substring(4))};
+        return new String[] {k, k.equals("multi") ? "server" : "world", ""};
+    }
+
+    /** The game mode selector's solo pick: PLAY starts it. */
+    public static void setPlay(String key, String name) {
+        Config.set("menu", "playMode", key);
+        Config.set("menu", "playName", name);
     }
 
     private static void play(String[] m, Object scr) {
-        Config.set("menu", "playMode", m[0]);
         if (m[0].equals("single")) act(SINGLE, scr);
         else if (m[0].equals("multi")) act(MULTI, scr);
-        else QuickJoin.join(m[1], m[0].substring(4), scr);
+        else if (m[0].startsWith("world:")) PartyPick.open(m[0].substring(6));
+        else QuickJoin.join(m[2], m[0].substring(4), scr);
     }
 
-    /** Solo: mode card + big PLAY. Party: SINGLEPLAYER / MULTIPLAYER over the party's own card (Party.title draws it). */
+    /** Solo: the game mode tile (opens the same selector as a party's) + big PLAY. Party: Party.title draws the party's card. */
     private static void playBlock(float x, float bottom, float w, Object scr, boolean party) {
-        if (party) { modesOpen = false; return; } // Party.title draws the party's card (SURVIVAL / MULTIPLAYER picks on it)
+        if (party) return; // Party.title draws the party's card (the mode tile is on it)
         String[] m = mode();
-        float ph = 64, mh = 42, my = bottom - ph - 8 - mh;
-        // mode card: what PLAY starts; opens the list of modes
-        boolean mhv = over(x, my, w, mh);
-        float mt = an("pmode", mhv || modesOpen);
-        Gfx.rect(x, my, w, mh, 8, Gfx.mix(Gfx.a(Gfx.CARD, 0.82f), Gfx.CARD2, mt));
-        Gfx.ring(x, my, w, mh, 8, 1, Gfx.mix(Gfx.a(Gfx.ICE, 0.1f), Gfx.LN2, mt));
-        Gfx.text(Gfx.SEMI, 8.5f, x + 14, my + 13, Gfx.SUB, "MODE", false, 1.4f);
-        Gfx.text(Gfx.SEMI, 13, x + 14, my + 28, Gfx.ICE, fit(Gfx.SEMI, 13, m[1], 0, w - 60));
-        float cx = x + w - 22, cyy = my + mh / 2;
-        Menu.drawChev(cx, cyy, modesOpen, Gfx.mix(Gfx.DIM, Gfx.ICE, mt));
-        if (mhv) tip("Change what PLAY starts");
-        if (hit(x, my, w, mh)) modesOpen = !modesOpen;
+        float ph = 64, mh = 58, my = bottom - ph - 8 - mh;
+        Party.modeTile(x, my, w, mh, m[1], m[2]);
         // PLAY
         float py = bottom - ph;
         boolean hv = over(x, py, w, ph), down = hv && Input.btn[0];
@@ -574,31 +676,7 @@ public final class MainMenu {
         Gfx.rect(x - 4, py - 2 + 6, w + 8, ph, 12, Gfx.a(Th.ac, 0.18f * (0.5f + 0.5f * t)));
         Gfx.rectG(x, py + (down ? 1 : 0), w, ph, 8, Gfx.mix(Th.ac2, 0xFFFFFFFF, 0.12f * t), down ? Gfx.mix(Th.ac, Gfx.BLACK, 0.2f) : Th.ac);
         Gfx.textC(Gfx.HEAD, 30, x + w / 2, py + ph / 2 + (down ? 1 : 0), 0xFFFFFFFF, "PLAY", 3f);
-        if (hit(x, py, w, ph)) { modesOpen = false; play(m, scr); }
-        // modes list, rising from the mode card
-        modesA = Config.calm() ? (modesOpen ? 1 : 0) : Math.max(0, Math.min(1, modesA + (modesOpen ? 1 : -1) * Gfx.dt * 10));
-        if (modesA <= 0) return;
-        java.util.List<String[]> l = modes();
-        float rh = 44, lh = l.size() * rh + 12, ly = my - 8 - lh + (1 - modesA) * 8;
-        float a0 = Gfx.alpha;
-        Gfx.alpha = a0 * modesA;
-        Gfx.rect(x, ly + 4, w, lh, 10, Gfx.a(Gfx.BLACK, 0.4f));
-        Gfx.rect(x, ly, w, lh, 10, Gfx.a(Gfx.CARD, 0.97f));
-        Gfx.ring(x, ly, w, lh, 10, 1, Gfx.LN2);
-        boolean inList = over(x, ly, w, lh);
-        for (int i = 0; i < l.size(); i++) {
-            String[] o = l.get(i);
-            float ry = ly + 6 + i * rh;
-            boolean rv = over(x + 6, ry, w - 12, rh), sel = o[0].equals(m[0]);
-            float rt = an("pm" + i, rv);
-            if (rt > 0.01f || sel) Gfx.rect(x + 6, ry, w - 12, rh, 6, Gfx.a(Gfx.ICE, 0.05f * rt + (sel ? 0.05f : 0)));
-            if (i == 2) Gfx.rect(x + 14, ry - 1, w - 28, 1, 0, Gfx.LN);
-            Gfx.text(Gfx.SEMI, 12, x + 18, ry + 16, Gfx.ICE, fit(Gfx.SEMI, 12, o[1], 0, w - 40));
-            Gfx.text(Gfx.UI, 10, x + 18, ry + 31, Gfx.DIM, fit(Gfx.UI, 10, o[2], 0, w - 40));
-            if (modesOpen && hit(x + 6, ry, w - 12, rh)) { Config.set("menu", "playMode", o[0]); modesOpen = false; }
-        }
-        Gfx.alpha = a0;
-        if (modesOpen && click && !inList && !over(x, my, w, mh)) { modesOpen = false; click = false; }
+        if (hit(x, py, w, ph)) play(m, scr);
     }
 
     private static boolean smallBtn(String id, String label, float x, float y, float w, float h) {
@@ -638,7 +716,6 @@ public final class MainMenu {
         float stageBottom = Party.active() ? H - 36 - 96 - 10 : H - 60;
         if (MODULE.bool("partyStage")) Party.stage(sx, 70, sw, stageBottom - 70, scr);
         float cw = 256;
-        if (!Party.active() && W - 16 - cw > sx) QuickJoin.card(W - 16 - cw, H - 36, cw, 76, scr);
     }
 
     static String tip;
@@ -685,7 +762,6 @@ public final class MainMenu {
         button(QUIT, x0 + half + gap, y, half, bh, false, scr);
         actions(x0, y + bh + ACT_GAP, bw, true, true);
         float cw = 256;
-        if (!Party.active() && W - 16 - cw > cx + bw / 2 + 24) QuickJoin.card(W - 16 - cw, H - 36, cw, 76, scr);
     }
 
     /** Rail: a left panel with logo, buttons and the account card; quick join bottom right. Returns: account goes top right. */
@@ -711,7 +787,6 @@ public final class MainMenu {
         boolean accTop = true;
         if (MODULE.bool("account") && y + 20 < H - 34 - 44) { accTop = accountCard(x, H - 34 - 44, bw) <= 0; }
         float cw = 256;
-        if (!Party.active() && W - 16 - cw > RW + 24) QuickJoin.card(W - 16 - cw, H - 36, cw, 76, scr);
         return accTop;
     }
 
@@ -731,7 +806,6 @@ public final class MainMenu {
         MenuBack.hgrad(0, 0, W * 0.55f, by, Gfx.a(Gfx.BG, 0.5f), Gfx.a(Gfx.BG, 0));
         logo(48, 56 + Math.max(0, (by - 56 - lh) * 0.5f) + rise, false, sc);
         float cw = 256;
-        if (!Party.active() && W - 16 - cw > 48 + 280 * sc) QuickJoin.card(W - 16 - cw, by - 14, cw, 76, scr);
     }
 
     // ---------------------------------------------------------------- the Nether actions row
@@ -776,26 +850,17 @@ public final class MainMenu {
     }
 
     /**
-     * Pause screen: a square button in the game's own style right of Save and Quit / Disconnect (vanilla's language and
-     * accessibility buttons sit the same way), with the screenshots icon; opens the Screenshots browser.
+     * Pause screen: square buttons in the game's own style right of Save and Quit / Disconnect (vanilla's language and
+     * accessibility buttons sit the same way): the screenshots icon opens the Screenshots browser, and Edit HUD above it
+     * (in its place while Screenshots is off) opens the HUD editor.
      */
     private static void galleryButton(Object s) {
-        if (!Modules.SHOTS.enabled()) return;
         int[] q = Leave.quitRect(s);
         if (q == null) return;
         float x = (q[0] + q[2] + 4) * 2, y = q[1] * 2, sz = q[3] * 2;
-        float a0 = Gfx.alpha;
-        Gfx.alpha = 1; // drawn like the game's own buttons, never faded
-        boolean hov = over(x, y, sz, sz);
-        if (!Vanilla.button(x, y, sz, hov)) {
-            Gfx.rect(x, y, sz, sz, 0, hov ? 0xFF6F6F6F : 0xFF4A4A4A);
-            Gfx.ring(x, y, sz, sz, 0, 2, hov ? 0xFFFFFFFF : 0xFF000000);
-        }
-        ModIcons.draw("screenshots", x + sz / 2 - 12, y + sz / 2 - 12, 24, legacy && hov ? 0xFFFFFFA0 : 0xFFFFFFFF);
-        box(x, y, sz, sz);
-        Gfx.alpha = a0;
-        if (hov) tip("Screenshots  \u00b7  " + Menu.keyName((int) Modules.SHOTS.num("openKey")));
-        if (hit(x, y, sz, sz)) Screenshots.show();
+        boolean shots = Modules.SHOTS.enabled();
+        if (shots && squareButton("pg", x, y, sz, "screenshots", "Screenshots")) Screenshots.show();
+        if (squareButton("ph", x, shots ? y - (q[3] + 4) * 2 : y, sz, "hudeditor", "Edit HUD")) Menu.openHudEditor();
     }
 
     /** An actions-row button: the title buttons' glass with a line icon or a label, and a tooltip on hover. */
@@ -1089,12 +1154,12 @@ public final class MainMenu {
             if (cell("dim" + i, DIMS[i], cx, yy + 12, cwi, Math.abs(dim - i * 0.2) < 0.06)) Config.set("menu", "dim", i * 0.2);
         }
         label("SHOW", c1, yy + 54);
-        String[] tk = {"clock", "account", "servers", "splash"}, tl = {"CLOCK", "ACCOUNT", "QUICK JOIN", "SPLASH"};
-        for (int i = 0; i < 4; i++) {
+        String[] tk = {"clock", "account", "splash"}, tl = {"CLOCK", "ACCOUNT", "SPLASH"};
+        for (int i = 0; i < 3; i++) {
             float bx = c1 + (i % 2) * (cw / 2 + 2), by = yy + 66 + (i / 2) * 28, bw = cw / 2 - 2;
-            boolean on = tk[i].equals("servers") ? MODULE.num("servers") > 0 : MODULE.bool(tk[i]);
+            boolean on = MODULE.bool(tk[i]);
             if (toggle("tg" + i, tl[i], bx, by, bw, on))
-                Config.set("menu", tk[i], tk[i].equals("servers") ? (Object) (on ? 0.0 : 3.0) : (Object) !on);
+                Config.set("menu", tk[i], !on);
         }
         Gfx.alpha = a0;
         inModal = false;

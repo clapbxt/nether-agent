@@ -123,11 +123,8 @@ public final class Party {
     public static boolean panelOpen() { return drawerOpen || voiceOpen || popFor != null; }
     public static void lockedNote() { say("Your party is playing: REJOIN it, or leave the party first"); Sfx.error(); }
 
-    /** Leader: pick where the party plays (the game's own lists; 1.8.9 / 1.12.2: the card's own picker). */
-    public static void pick(int kind, Object screen) {
-        if (Game.legacy()) { destKind = kind; destOpen = true; return; }
-        PartyPick.start(kind, screen);
-    }
+    /** Leader: open the game mode selector (SURVIVAL worlds / MULTIPLAYER servers) on `kind`. */
+    public static void pick(int kind, Object screen) { destKind = kind; destOpen = true; dScroll = dScrollT = 0; }
     static void pickServer(String addr, String name) { act("dest", "kind", "server", "address", normal(addr), "name", name); }
     static void pickWorld(String folder) { act("dest", "kind", "world", "name", folder); }
     /** Something for the hub badge: invites to us + requests we decide. */
@@ -697,9 +694,11 @@ public final class Party {
         List<M> slots = order();
         int n = slots.size();
         float feet = y + h - 50;
-        // the lineup grows with the window (about 60% of the stage height), so big screens don't get tiny players
+        // the lineup keeps a good share of the window (34% of its height at GUI scale 2, a little more at bigger scales)
+        // so it grows with the GUI scale without ever looking tiny in a big window
         float avail = feet - y - 10;
-        float mh = Math.max(130, Math.min(avail, Math.max(250, avail * 0.6f))), mw = mh * PW / PH;
+        float share = Math.min(0.46f, 0.28f + 0.06f * Gfx.s);
+        float mh = Math.max(130, Math.min(avail, share * Gfx.fbH / Gfx.s)), mw = mh * PW / PH;
         float gap = Math.min(Math.max(mw * 0.78f, 128), (w - mw * 0.8f) / Math.max(1, n - 1));
         if (gap < mw * 0.62f) { mh = Math.max(120, gap / 0.62f * PH / PW); mw = mh * PW / PH; }
         float u = Math.max(1, mh / 250); // decoration scale (glows, plus, crown) next to the models
@@ -840,7 +839,6 @@ public final class Party {
         if (!linked || !loaded) { offline(W, H); return; }
         boolean party = members.size() > 1;
         if (party) play(W - 16 - 250, playBottom, 250, screen);
-        else destOpen = false;
         chatBox(chatX, chatBottom, Math.min(300, W * 0.36f), party);
         cards(W);
         if (!note.isEmpty() && System.currentTimeMillis() - noteAt < 5000) {
@@ -866,6 +864,8 @@ public final class Party {
     private static void offline(float W, float H) {
         drawerOpen = voiceOpen = false;
         popFor = null;
+        if (destOpen) destPicker(W, H);
+        wheel = 0;
     }
 
     /** Top-bar PARTY control (next to CUSTOMISE); returns its width. */
@@ -894,11 +894,20 @@ public final class Party {
 
     private static float[] chipRect;
 
+    /** The party is available (the pause screen's square PARTY button shows). */
+    public static boolean ready() { return linked && loaded; }
+
+    /** The pause screen's square PARTY button at (x, y, w, h): the drawer's anchor; true while the drawer is open. */
+    public static boolean anchor(float x, float y, float w, float h) { chipRect = new float[] {x, y, w, h}; return drawerOpen; }
+
+    public static void toggleDrawer() { drawerOpen = !drawerOpen; scroll = scrollT = 0; popFor = null; }
+
     /** Pause screen in a world: the PARTY chip's drawer, member pop-up and voice settings (no chat in the world). */
     public static void pause(float W, float H) {
         if (!linked || !loaded) { offline(W, H); return; }
         typing = false;
         destOpen = false;
+        form = 0;
         if (panelOpen()) MainMenu.box(0, 0, W, H); // our panels take every click while open
         drawerA = Config.calm() ? (drawerOpen ? 1 : 0) : Math.max(0, Math.min(1, drawerA + (drawerOpen ? 1 : -1) * Gfx.dt * 9));
         if (drawerA > 0) drawer(W, H);
@@ -989,7 +998,12 @@ public final class Party {
     private static float cardX, cardTop;
     private static int destKind = PartyPick.SERVER;
 
-    private static float[] destRect(float W, float H) { return new float[] {cardX, Math.max(60, cardTop - 46 - 220), 250, 220}; }
+    private static float dScroll, dScrollT;
+
+    private static float[] destRect(float W, float H) {
+        float w = Math.min(640, W - 40), h = Math.min(440, H - 60);
+        return new float[] {(W - w) / 2, (H - h) / 2, w, h};
+    }
 
     /**
      * The party card (bottom right): what was picked, who is ready, the countdown; the leader's SURVIVAL / MULTIPLAYER
@@ -1002,13 +1016,7 @@ public final class Party {
         float h = 104, y = bottom - h;
         cardX = x;
         cardTop = y;
-        if (leading && !live) { // the leader's two picks
-            float hw = (w - 6) / 2, py = y - 8 - 30;
-            if (pickBtn("ppw", "SURVIVAL", "host", x, py, hw, 30, world)) pick(PartyPick.WORLD, screen);
-            if (MainMenu.over(x, py, hw, 30)) MainMenu.tip("Pick one of your worlds: it opens for the party when everyone is ready");
-            if (pickBtn("pps", "MULTIPLAYER", "server", x + hw + 6, py, hw, 30, "server".equals(kind))) pick(PartyPick.SERVER, screen);
-            if (MainMenu.over(x + hw + 6, py, hw, 30)) MainMenu.tip("Pick a server from your list: you all join when everyone is ready");
-        }
+        if (leading && !live) modeTile(x, y - 8 - 58, w, 58, dest == null ? "" : kind, dest == null ? "" : world ? PartyPick.worldName(str(dest.get("name"))) : str(dest.get("name")).isEmpty() ? str(dest.get("address")) : str(dest.get("name")));
         MainMenu.glass(x, y, w, h);
         int rd = 0, total = 0;
         for (M m : members) { total++; if (m.ready || m.leader) rd++; }
@@ -1069,15 +1077,37 @@ public final class Party {
         }
     }
 
-    /** SURVIVAL / MULTIPLAYER pick button above the card (selected = what is picked now). */
-    private static boolean pickBtn(String id, String label, String icon, float x, float y, float w, float h, boolean sel) {
+    /**
+     * The game mode tile (Fortnite's mode button): the picked mode, click to change it. kind: "world", "server" or ""
+     * (nothing picked); name: what was picked. Used above the party card and above the solo PLAY button.
+     */
+    public static void modeTile(float x, float y, float w, float h, String kind, String name) {
+        boolean none = kind.isEmpty(), world = "world".equals(kind);
+        boolean hv = MainMenu.over(x, y, w, h);
+        float t = MainMenu.an("pmt", hv);
+        Gfx.rect(x, y, w, h, 8, Gfx.mix(Gfx.a(Gfx.CARD, 0.86f), Gfx.CARD2, t));
+        Gfx.ring(x, y, w, h, 8, 1, none ? Gfx.mix(Gfx.a(Th.ac, 0.7f), Gfx.a(Th.ac2, 1f), t) : Gfx.mix(Gfx.a(Gfx.ICE, 0.18f), Gfx.a(Gfx.ICE, 0.5f), t));
+        Gfx.rect(x + 8, y + 8, h - 16, h - 16, 6, Gfx.a(none ? Th.ac : Gfx.ICE, none ? 0.22f : 0.08f));
+        ModIcons.draw(none ? "party" : world ? "user" : "friends", x + 8 + (h - 16 - 20) / 2, y + 8 + (h - 16 - 20) / 2, 20, none ? Th.ac2 : Gfx.ICE);
+        Gfx.text(Gfx.MONO, 8, x + h + 2, y + 15, Gfx.SUB, "GAME MODE", false, 1.4f);
+        Gfx.text(Gfx.HEAD, 15, x + h + 2, y + 33, none ? Gfx.ICE : Th.ac2, none ? "SELECT MODE" : world ? "SURVIVAL" : "MULTIPLAYER", false, 1.2f);
+        String sub = none ? "Singleplayer world or a server" : name.isEmpty() ? (world ? "Choose a world" : "Choose a server") : name;
+        Gfx.text(Gfx.UI, 9, x + h + 2, y + 47, Gfx.SUB, MainMenu.fit(Gfx.UI, 9, sub, 0, w - h - 34));
+        ModIcons.draw("chev", x + w - 22, y + h / 2 - 6, 12, Gfx.mix(Gfx.SUB, Gfx.ICE, t));
+        if (hv) MainMenu.tip("Choose what to play: one of your worlds or a server");
+        if (MainMenu.hit(x, y, w, h)) pick(world ? PartyPick.WORLD : PartyPick.SERVER, null);
+    }
+
+    /** A selector mode card (SURVIVAL / MULTIPLAYER). */
+    private static boolean modeCard(String id, String label, String sub, String icon, float x, float y, float w, float h, boolean on) {
         boolean hv = MainMenu.over(x, y, w, h);
         float t = MainMenu.an(id, hv);
-        Gfx.rect(x, y, w, h, 7, Gfx.mix(Gfx.a(Gfx.CARD, 0.82f), Gfx.CARD2, t));
-        Gfx.ring(x, y, w, h, 7, 1, sel ? Gfx.a(Gfx.ICE, 0.45f) : Gfx.mix(Gfx.a(Gfx.ICE, 0.1f), Gfx.LN2, t));
-        float lw = Gfx.width(Gfx.SEMI, 10.5f, label, 1.3f), ix = x + (w - lw - 20) / 2;
-        ModIcons.draw(icon, ix, y + h / 2 - 7, 14, sel ? Th.ac2 : Gfx.mix(Gfx.SUB, Gfx.ICE, t));
-        Gfx.text(Gfx.SEMI, 10.5f, ix + 20, y + h / 2, Gfx.mix(Gfx.DIM, Gfx.ICE, Math.max(t, sel ? 1 : 0)), label, false, 1.3f);
+        Gfx.rect(x, y, w, h, 9, on ? Gfx.a(Th.ac, 0.16f + 0.06f * t) : Gfx.mix(Gfx.a(Gfx.ICE, 0.04f), Gfx.a(Gfx.ICE, 0.09f), t));
+        Gfx.ring(x, y, w, h, 9, on ? 2 : 1, on ? Th.ac2 : Gfx.mix(Gfx.LN, Gfx.a(Gfx.ICE, 0.35f), t));
+        ModIcons.draw(icon, x + 18, y + h / 2 - 14, 28, on ? Th.ac2 : Gfx.mix(Gfx.SUB, Gfx.ICE, t));
+        Gfx.text(Gfx.HEAD, 17, x + 60, y + h / 2 - 9, on ? Gfx.ICE : Gfx.mix(Gfx.DIM, Gfx.ICE, t), label, false, 1.3f);
+        Gfx.text(Gfx.UI, 10, x + 60, y + h / 2 + 11, Gfx.SUB, sub);
+        if (on) ModIcons.draw("check", x + w - 28, y + 12, 14, Th.ac2);
         return MainMenu.hit(x, y, w, h);
     }
 
@@ -1092,31 +1122,192 @@ public final class Party {
         return enabled && MainMenu.hit(x, y, w, h);
     }
 
+    // ---- the selector's forms: add / edit / remove a server, delete a world (kept inside the panel)
+
+    /** 0 none, 1 add server, 2 edit server, 3 remove server, 4 delete world */
+    private static int form;
+    private static String fName = "", fAddr = "", fOld = "", fErr = "";
+    private static int fFocus;
+
+    /** A text form is open (typed characters go to it). */
+    public static boolean form() { return form == 1 || form == 2; }
+
+    private static void formChars(String s) {
+        if (s == null) return;
+        StringBuilder b = new StringBuilder(fFocus == 0 ? fName : fAddr);
+        for (char c : s.toCharArray()) if (c >= 32 && c != 127 && !Character.isISOControl(c) && (fFocus == 0 || !Character.isWhitespace(c))) b.append(c);
+        String v = b.length() > (fFocus == 0 ? 64 : 255) ? b.substring(0, fFocus == 0 ? 64 : 255) : b.toString();
+        if (fFocus == 0) fName = v; else fAddr = v;
+        fErr = "";
+    }
+
+    private static boolean formKey(int k, int action) {
+        if (action == Input.RELEASE) return true;
+        boolean edit = form == 1 || form == 2, ctrl = Input.keys[341] || Input.keys[345];
+        if (k == 256) { form = 0; return true; }
+        if (!edit) { if (k == 257 || k == 335) runConfirm(); return true; }
+        if (k == 258) { fFocus ^= 1; return true; }
+        if (k == 257 || k == 335) { if (fFocus == 0) fFocus = 1; else submitForm(); return true; }
+        if (k == 259) {
+            String v = fFocus == 0 ? fName : fAddr;
+            v = ctrl || v.isEmpty() ? "" : v.substring(0, v.length() - 1);
+            if (fFocus == 0) fName = v; else fAddr = v;
+            fErr = "";
+            return true;
+        }
+        if (k == 86 && ctrl) { formChars(Plat.cur.clipboard()); return true; }
+        return true;
+    }
+
+    /** What PLAY starts, when it was the thing just removed: back to the game's own lists. */
+    private static void forgetPlay(String key) {
+        if (Config.str("menu", "playMode", "").equalsIgnoreCase(key)) MainMenu.setPlay("single", "");
+    }
+
+    private static void submitForm() {
+        String name = fName.trim(), addr = fAddr.trim();
+        if (addr.isEmpty() || addr.length() > 255) { fErr = "Enter the server's address, like play.example.com"; fFocus = 1; return; }
+        if (name.isEmpty()) name = "Minecraft Server";
+        if (!QuickJoin.saveServer(form == 2 ? fOld : null, name, addr)) { fErr = "That server is already in your list"; fFocus = 1; return; }
+        if (form == 2 && !fOld.equalsIgnoreCase(addr) && Config.str("menu", "playMode", "").equalsIgnoreCase("srv:" + fOld)) MainMenu.setPlay("srv:" + addr, name);
+        form = 0;
+    }
+
+    private static void runConfirm() {
+        if (form == 3) { QuickJoin.removeServer(fOld); forgetPlay("srv:" + fOld); }
+        else if (form == 4) { if (PartyPick.deleteWorld(fOld)) forgetPlay("world:" + fOld); }
+        form = 0;
+    }
+
+    private static void formField(int idx, String label, String val, String empty, float x, float y, float w) {
+        boolean foc = fFocus == idx;
+        Gfx.text(Gfx.MONO, 8.5f, x, y + 6, Gfx.SUB, label, false, 1.4f);
+        Gfx.rect(x, y + 16, w, 30, 6, Gfx.a(Gfx.ICE, foc ? 0.09f : 0.04f));
+        Gfx.ring(x, y + 16, w, 30, 6, 1, foc ? Gfx.a(Gfx.ICE, 0.4f) : Gfx.LN);
+        if (val.isEmpty() && !foc) Gfx.text(Gfx.UI, 11, x + 12, y + 31, Gfx.MUT, empty);
+        else {
+            String shown = val;
+            while (shown.length() > 0 && Gfx.width(Gfx.UI, 11, shown) > w - 30) shown = shown.substring(1);
+            Gfx.text(Gfx.UI, 11, x + 12, y + 31, Gfx.ICE, shown + (foc && (System.currentTimeMillis() / 500) % 2 == 0 ? "|" : ""));
+        }
+        if (MainMenu.hit(x, y + 16, w, 30)) fFocus = idx;
+    }
+
+    /** The open form, centred in the selector panel r. */
+    private static void drawForm(float[] r) {
+        boolean edit = form == 1 || form == 2;
+        float w = Math.min(380, r[2] - 40), h = edit ? 218 : 150, x = r[0] + (r[2] - w) / 2, y = r[1] + (r[3] - h) / 2;
+        Gfx.rect(r[0], r[1], r[2], r[3], 12, Gfx.a(Gfx.BLACK, 0.55f));
+        Gfx.rect(x, y + 6, w, h, 12, Gfx.a(Gfx.BLACK, 0.45f));
+        Gfx.rect(x, y, w, h, 12, Gfx.CARD);
+        Gfx.ring(x, y, w, h, 12, 1, Gfx.LN2);
+        Gfx.text(Gfx.HEAD, 16, x + 20, y + 26, Gfx.ICE, form == 1 ? "ADD SERVER" : form == 2 ? "EDIT SERVER" : form == 3 ? "REMOVE SERVER" : "DELETE WORLD");
+        float by = y + h - 18 - 30, bw = (w - 40 - 8) / 2;
+        if (edit) {
+            formField(0, "SERVER NAME", fName, "Minecraft Server", x + 20, y + 44, w - 40);
+            formField(1, "SERVER ADDRESS", fAddr, "play.example.com", x + 20, y + 104, w - 40);
+            if (!fErr.isEmpty()) Gfx.text(Gfx.UI, 10, x + 20, by - 10, 0xFFF2545B, MainMenu.fit(Gfx.UI, 10, fErr, 0, w - 40));
+        } else {
+            String a = form == 3 ? "Remove \"" + fName + "\" from your server list?" : "Delete the world \"" + fName + "\"?";
+            String b = form == 3 ? "You can add it again any time." : "Its files are deleted. This can't be undone.";
+            Gfx.text(Gfx.SEMI, 12, x + 20, y + 62, Gfx.ICE, MainMenu.fit(Gfx.SEMI, 12, a, 0, w - 40));
+            Gfx.text(Gfx.UI, 10.5f, x + 20, y + 84, Gfx.SUB, b);
+        }
+        if (pill("dfc", "CANCEL", x + 20, by, bw, 30, false)) form = 0;
+        if (pill("dfo", form == 1 ? "ADD SERVER" : form == 2 ? "SAVE" : form == 3 ? "REMOVE" : "DELETE", x + 28 + bw, by, bw, 30, true)) { if (edit) submitForm(); else runConfirm(); }
+    }
+
+    /** The game mode selector: two mode cards on top, the picked mode's worlds / servers as cards below. */
     private static void destPicker(float W, float H) {
         float[] r = destRect(W, H);
-        MainMenu.inModal = true;
         float x = r[0], y = r[1], w = r[2], h = r[3];
-        Gfx.rect(x, y + 4, w, h, 10, Gfx.a(Gfx.BLACK, 0.4f));
-        Gfx.rect(x, y, w, h, 10, Gfx.a(Gfx.CARD, 0.97f));
-        Gfx.ring(x, y, w, h, 10, 1, Gfx.LN2);
+        boolean solo = !active(); // no party: the pick is what PLAY starts
+        Gfx.rect(0, 0, W, H, 0, Gfx.a(Gfx.BLACK, 0.55f));
+        MainMenu.inModal = form == 0; // a form on top makes the rest inert
+        Gfx.rect(x, y + 6, w, h, 12, Gfx.a(Gfx.BLACK, 0.45f));
+        Gfx.rect(x, y, w, h, 12, Gfx.a(Gfx.CARD, 0.98f));
+        Gfx.ring(x, y, w, h, 12, 1, Gfx.LN2);
+        Gfx.text(Gfx.HEAD, 18, x + 20, y + 26, Gfx.ICE, "GAME MODE");
+        Gfx.text(Gfx.MONO, 8.5f, x + 20 + Gfx.width(Gfx.HEAD, 18, "GAME MODE") + 10, y + 27, Gfx.SUB, solo ? "WHAT PLAY STARTS" : "WHERE YOUR PARTY PLAYS", false, 1.4f);
+        if (iconBtn("dpclose", "close", x + w - 40, y + 12, 24, false, 0, null)) destOpen = false;
+        Gfx.rect(x, y + 48, w, 1, 0, Gfx.LN);
         boolean worlds = destKind == PartyPick.WORLD;
-        Gfx.text(Gfx.MONO, 8.5f, x + 14, y + 16, Gfx.SUB, worlds ? "PICK A WORLD" : "PICK A SERVER", false, 1.4f);
-        List<String[]> list = worlds ? PartyPick.worlds() : QuickJoin.list(); // worlds: {folder, name}; servers: {name, address}
-        float yy = y + 28;
-        if (list.isEmpty()) Gfx.text(Gfx.UI, 11, x + 14, yy + 14, Gfx.SUB, worlds ? "Create a world in Singleplayer first." : "Add servers in Multiplayer first.");
-        for (String[] s : list) {
-            if (yy + 30 > y + h - 8) break;
-            String title = worlds ? s[1] : s[0], line = worlds ? s[0] : s[1];
-            boolean sel = dest != null && (worlds ? s[0].equals(str(dest.get("name"))) : s[1].equalsIgnoreCase(str(dest.get("address"))));
-            boolean hv = MainMenu.over(x + 6, yy, w - 12, 28);
-            Gfx.rect(x + 6, yy, w - 12, 28, 6, sel ? Gfx.a(Gfx.ICE, 0.12f) : Gfx.a(Gfx.ICE, hv ? 0.07f : 0));
-            Gfx.text(Gfx.SEMI, 11, x + 16, yy + 10, Gfx.ICE, MainMenu.fit(Gfx.SEMI, 11, title, 0, w - 40));
-            Gfx.text(Gfx.UI, 9, x + 16, yy + 21, Gfx.SUB, MainMenu.fit(Gfx.UI, 9, line, 0, w - 40));
-            if (MainMenu.hit(x + 6, yy, w - 12, 28)) { if (worlds) pickWorld(s[0]); else pickServer(s[1], s[0]); destOpen = false; }
-            yy += 30;
+        List<String[]> wl = PartyPick.worlds(), sl = QuickJoin.list(); // worlds: {folder, name}; servers: {name, address}
+        float cw = (w - 40 - 12) / 2, cy = y + 62;
+        if (modeCard("pmw", "SURVIVAL", wl.size() + (wl.size() == 1 ? " world" : " worlds"), "user", x + 20, cy, cw, 68, worlds)) { destKind = PartyPick.WORLD; dScroll = dScrollT = 0; }
+        if (modeCard("pms", "MULTIPLAYER", sl.size() + (sl.size() == 1 ? " server" : " servers"), "friends", x + 32 + cw, cy, cw, 68, !worlds)) { destKind = PartyPick.SERVER; dScroll = dScrollT = 0; }
+        Gfx.text(Gfx.MONO, 8.5f, x + 20, cy + 68 + 22, Gfx.SUB, worlds ? "PICK A WORLD" : "PICK A SERVER", false, 1.4f);
+        {   // the game's list actions: refresh, create a world / add a server
+            float bx = x + w - 20, by = cy + 68 + 10;
+            float rw = Gfx.width(Gfx.SEMI, 10.5f, "REFRESH", 1.2f) + 28;
+            bx -= rw;
+            if (pill("dprf", "REFRESH", bx, by, rw, 24, false)) { if (worlds) PartyPick.refreshWorlds(); else QuickJoin.refresh(); }
+            String al = worlds ? "CREATE NEW WORLD" : "ADD SERVER";
+            float aw = Gfx.width(Gfx.SEMI, 10.5f, al, 1.2f) + 28;
+            bx -= aw + 8;
+            if (pill("dpadd", al, bx, by, aw, 24, true)) {
+                if (worlds) { destOpen = false; PartyPick.createWorld(); }
+                else { form = 1; fName = ""; fAddr = ""; fOld = ""; fErr = ""; fFocus = 0; }
+            }
         }
+        List<String[]> list = worlds ? wl : sl;
+        float top = cy + 68 + 36, bottom = y + h - 40, ch = 52, gap = 8;
+        int rows = (list.size() + 1) / 2;
+        float total = rows * (ch + gap);
+        boolean inList = MainMenu.overRaw(x, top, w, bottom - top);
+        if (inList) dScrollT -= wheel * 36;
+        dScrollT = Math.max(0, Math.min(Math.max(0, total - (bottom - top)), dScrollT));
+        dScroll += (dScrollT - dScroll) * Math.min(1, Gfx.dt * 14);
+        if (list.isEmpty()) Gfx.text(Gfx.UI, 11, x + 20, top + 16, Gfx.SUB, worlds ? "No worlds yet. Press CREATE NEW WORLD." : "No servers yet. Press ADD SERVER.");
+        String dk = dest == null ? "" : str(dest.get("kind")), dn = dest == null ? "" : str(dest.get("name")), da = dest == null ? "" : str(dest.get("address"));
+        if (solo) {
+            String pm = Config.str("menu", "playMode", "single");
+            dk = pm.startsWith("world:") ? "world" : pm.startsWith("srv:") ? "server" : "";
+            dn = pm.startsWith("world:") ? pm.substring(6) : "";
+            da = pm.startsWith("srv:") ? normal(pm.substring(4)) : "";
+        }
+        int[] clip = Gfx.clipIn(x + 1, top, w - 2, bottom - top);
+        for (int i = 0; i < list.size(); i++) {
+            String[] s = list.get(i);
+            float ix = x + 20 + (i % 2) * (cw + 12), iy = top + (i / 2) * (ch + gap) - dScroll;
+            if (iy + ch < top || iy > bottom) continue;
+            String title = worlds ? s[1] : s[0], line = worlds ? s[0] : s[1];
+            boolean sel = worlds ? "world".equals(dk) && s[0].equals(dn) : "server".equals(dk) && normal(s[1]).equals(da);
+            boolean hv = inList && MainMenu.over(ix, iy, cw, ch);
+            float t = MainMenu.an("pdi" + i, hv);
+            Gfx.rect(ix, iy, cw, ch, 8, sel ? Gfx.a(Th.ac, 0.16f) : Gfx.mix(Gfx.a(Gfx.ICE, 0.04f), Gfx.a(Gfx.ICE, 0.09f), t));
+            Gfx.ring(ix, iy, cw, ch, 8, sel ? 2 : 1, sel ? Th.ac2 : Gfx.mix(Gfx.LN, Gfx.a(Gfx.ICE, 0.35f), t));
+            String tex = worlds ? PartyPick.worldIcon(s[0]) : QuickJoin.icon(s[1]); // the game's own world / server icon
+            float is = ch - 16;
+            if (tex != null) Gfx.image(tex, ix + 8, iy + 8, is, is, 0xFFFFFFFF, 4);
+            else {
+                Gfx.rect(ix + 8, iy + 8, is, is, 4, Gfx.S3);
+                Gfx.textC(Gfx.HEAD, 16, ix + 8 + is / 2, iy + 8 + is / 2, Gfx.DIM, title.isEmpty() ? "?" : title.substring(0, 1).toUpperCase(Locale.ROOT), 0);
+            }
+            Gfx.text(Gfx.SEMI, 11.5f, ix + 8 + is + 10, iy + 19, Gfx.ICE, MainMenu.fit(Gfx.SEMI, 11.5f, title, 0, cw - is - 80));
+            Gfx.text(Gfx.UI, 9.5f, ix + 8 + is + 10, iy + 35, Gfx.SUB, MainMenu.fit(Gfx.UI, 9.5f, line, 0, cw - is - 80));
+            if (sel && !hv) ModIcons.draw("check", ix + cw - 28, iy + ch / 2 - 7, 14, Th.ac2);
+            if (hv) { // edit / remove (servers), delete (worlds), over the entry
+                float bxx = ix + cw - 8 - 24, byy = iy + (ch - 24) / 2;
+                if (iconBtn("dpx" + i, "close", bxx, byy, 24, false, 0, worlds ? "Delete this world" : "Remove this server")) {
+                    form = worlds ? 4 : 3; fOld = s[worlds ? 0 : 1]; fName = title;
+                }
+                if (!worlds && form == 0 && iconBtn("dpe" + i, "settings", bxx - 28, byy, 24, false, 0, "Edit this server")) {
+                    form = 2; fOld = s[1]; fName = s[0]; fAddr = s[1]; fErr = ""; fFocus = 0;
+                }
+            }
+            if (hv && form == 0 && MainMenu.hit(ix, iy, cw, ch)) {
+                if (solo) MainMenu.setPlay(worlds ? "world:" + s[0] : "srv:" + s[1], title);
+                else if (worlds) pickWorld(s[0]); else pickServer(s[1], s[0]);
+                destOpen = false;
+            }
+        }
+        Gfx.reclip(clip);
+        Gfx.rect(x, bottom + 6, w, 1, 0, Gfx.LN);
+        Gfx.text(Gfx.UI, 10, x + 20, y + h - 18, Gfx.SUB, solo ? "PLAY starts what you pick here." : "Your party sees the pick and readies up; it starts 5 seconds after everyone is ready.");
+        if (form != 0) { MainMenu.inModal = true; drawForm(r); }
         MainMenu.inModal = false;
-        if (MainMenu.clickNow() && !MainMenu.overRaw(x, y, w, h)) { destOpen = false; MainMenu.eat(); }
+        if (form == 0 && MainMenu.clickNow() && !MainMenu.overRaw(x, y, w, h)) { destOpen = false; MainMenu.eat(); }
     }
 
     private static String normal(String ip) {
@@ -1209,6 +1400,7 @@ public final class Party {
 
     /** A key on the title screen while no Nether menu is open: true = ours (chat typing, key capture, Enter to chat). */
     public static boolean key(int k, int action) {
+        if (form != 0) return formKey(k, action);
         if (capture) {
             if (action != Input.PRESS) return true;
             capture = false;
@@ -1249,6 +1441,7 @@ public final class Party {
     public static boolean capturing() { return capture; }
 
     public static void chars(String s) {
+        if (form()) { formChars(s); return; }
         if (!typing || s == null) return;
         StringBuilder b = new StringBuilder(field);
         for (char c : s.toCharArray()) if (c >= 32 && c != 127 && !Character.isISOControl(c)) b.append(c);

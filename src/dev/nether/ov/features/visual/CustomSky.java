@@ -27,7 +27,7 @@ import org.lwjgl.opengl.GL11;
  * conditions are not read (the layer shows everywhere). Format from the OptiFine docs; the face layout follows
  * Horizon's open reader. No sky art is bundled: packs bring it.
  * 1.8.9 / 1.12.2: drawn at the end of RenderGlobal.renderSky (Hook.sky) with immediate GL in the game's camera matrices.
- * 1.21.2 - 26.1: drawn right after SkyRenderer.renderSkyDisc (Hook.skyModern) into the game's bound render target by the
+ * 1.21.2 - 26.1+ (every release whose SkyRenderer.renderSkyDisc is hooked): drawn right after SkyRenderer.renderSkyDisc (Hook.skyModern) into the game's bound render target by the
  * overlay's own GL program ({@link GlBackend#targetFb}: the main colour texture on our own framebuffer, since the game's pass has ended): each face as small projected quads (fine enough that the flat
  * mapping inside one quad is invisible), behind everything drawn later (terrain, clouds). 26.3 draws its sky inside its
  * own render pass and is not hooked.
@@ -43,7 +43,7 @@ public final class CustomSky extends Module {
     private static boolean installed;
 
     @Override public boolean available() { return (Game.legacy() || Game.fabric()) && dev.nether.agent.Hook.skyHooked; }
-    @Override public String lockNote() { return available() ? null : "NEEDS 1.8.9, 1.12.2 OR 1.21.2 - 26.1 (IN A WORLD)"; }
+    @Override public String lockNote() { return available() ? null : "INCOMPATIBLE VERSION"; }
 
     @Override public void tick() {
         if (!installed && available()) {

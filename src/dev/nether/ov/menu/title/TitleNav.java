@@ -42,7 +42,7 @@ public final class TitleNav {
     private static final java.util.Map<String, Float> anim = new java.util.HashMap<>();
 
     /** The title screen's unit size for this framebuffer (MainMenu.drawTitle's). */
-    static float scale(int fbW, int fbH) { return Math.min(Gfx.base, Math.min(fbW / 640f, fbH / 480f)); }
+    static float scale(int fbW, int fbH) { return Math.min(Math.max(Gfx.base, 1f), Math.min(fbW / 640f, fbH / 480f)); } // never below GUI scale 2: labels have a 9 px floor, so smaller units would overlap
 
     /** Bottom of the bar in framebuffer pixels (pages start under it). */
     public static float bottomPx(int fbW, int fbH) { return H * scale(fbW, fbH); }
@@ -270,7 +270,6 @@ public final class TitleNav {
         l.add(new String[] {"nether", "Nether settings", "Modules, theme, keybinds, profiles"});
         l.add(new String[] {"options", "Minecraft options", "Video, controls, sound, language"});
         if (MainMenu.hasModMenu()) l.add(new String[] {"modmenu", "Mod Menu", "Your Fabric mods and their settings"});
-        l.add(new String[] {"custom", "Customise this screen", "Background, dim, quick join, splash"});
         return l;
     }
 
