@@ -4,6 +4,8 @@ What changed in each client release, newest first. Add a line under **Unreleased
 change: what a player notices, not how it was done. At release, move the lines under the new version.
 
 ## Unreleased
+- Closing a Nether screen opened from the pause screen (Nether, Wardrobe, Friends) goes straight back to the game: no more flash of the Right Shift menu, and the Wardrobe no longer drops you on it.
+- Pause screen: hovering Mods no longer hides the Screenshots and Edit HUD buttons.
 - Mods and Settings are one screen: Settings is the last chip after the module categories and HUD, and switching between them only swaps what is under the chips (no more pop-in like a new window). In the lobby, the MODS tab stays lit while Settings is open.
 - Title panoramas are softly blurred (Main Menu > Blur), and the game's own menus outside a world (options, server list, connecting...) now show Nether's panorama instead of Minecraft's ("Panorama in every menu").
 - Lobby: you stand on the stage in your own skin with your cape and cosmetics again, with or without a party.
