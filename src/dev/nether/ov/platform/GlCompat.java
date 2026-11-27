@@ -181,14 +181,9 @@ public final class GlCompat extends GlBackend {
         identityMap();
         GL20.glUniform1i(uTex, 0);
         GL20.glUniform1i(uImg, 1);
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
-        int[] sizes = {2, 2, 4, 2, 4};
-        int off = 0;
-        for (int i = 0; i < sizes.length; i++) {
-            GL20.glEnableVertexAttribArray(i);
-            GL20.glVertexAttribPointer(i, sizes[i], GL11.GL_FLOAT, false, FLOATS * 4, off * 4L);
-            off += sizes[i];
-        }
+        for (int i = 0; i < SIZES.length; i++) GL20.glEnableVertexAttribArray(i);
+        attribs(vbo);
+        inKept = false;
     }
 
     private void identityMap() {
@@ -202,9 +197,39 @@ public final class GlCompat extends GlBackend {
     }
 
     @Override public void draw(FloatBuffer data, int verts) {
+        if (inKept) { inKept = false; attribs(vbo); }
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, data, GL15.GL_STREAM_DRAW);
         GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, verts);
     }
+
+    /** the recorded HUD's own buffer (Performance "Reuse HUD drawing"): replays upload nothing */
+    private int kvbo;
+    private boolean inKept;
+
+    @Override public boolean keep(FloatBuffer data) {
+        if (kvbo == 0) kvbo = GL15.glGenBuffers();
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, kvbo);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, data, GL15.GL_DYNAMIC_DRAW);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, inKept ? kvbo : vbo);
+        return true;
+    }
+
+    @Override public void drawKept(int first, int verts) {
+        if (!inKept) { inKept = true; attribs(kvbo); }
+        GL11.glDrawArrays(GL11.GL_TRIANGLES, first, verts);
+    }
+
+    /** Points the five attributes at buffer b (no VAO on this path) and leaves it bound. */
+    private static void attribs(int b) {
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, b);
+        int off = 0;
+        for (int i = 0; i < SIZES.length; i++) {
+            GL20.glVertexAttribPointer(i, SIZES[i], GL11.GL_FLOAT, false, FLOATS * 4, off * 4L);
+            off += SIZES[i];
+        }
+    }
+
+    private static final int[] SIZES = {2, 2, 4, 2, 4};
 
     @Override public void upload(int x, int y, int w, int h, ByteBuffer px) {
         int[] ps = {GL11.GL_UNPACK_ALIGNMENT, GL11.GL_UNPACK_ROW_LENGTH, GL11.GL_UNPACK_SKIP_ROWS, GL11.GL_UNPACK_SKIP_PIXELS};

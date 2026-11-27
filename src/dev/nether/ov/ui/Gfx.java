@@ -248,7 +248,30 @@ public final class Gfx {
         flush();
         Rec r = rec;
         rec = null;
-        if (r != null && gen == recGen) r.gen = gen;
+        if (r != null && gen == recGen) { r.gen = gen; keep(r); }
+    }
+
+    /** the Rec whose vertices sit in the backend's kept buffer (replays draw from there), and that backend */
+    private static Rec kept;
+    private static GlBackend keptBy;
+    private static FloatBuffer kbuf;
+
+    /** Copies r's vertex batches into the backend's kept buffer once, so each replay uploads nothing. */
+    private static void keep(Rec r) {
+        kept = null;
+        int total = 0;
+        for (int i = 0; i < r.size; i++) { Rec.Op o = r.ops.get(i); if (o.kind == 0) total += o.n; }
+        if (total == 0 || !ready) return;
+        if (kbuf == null || kbuf.capacity() < total) kbuf = BufferUtils.createFloatBuffer(total + total / 2);
+        kbuf.clear();
+        for (int i = 0; i < r.size; i++) {
+            Rec.Op o = r.ops.get(i);
+            if (o.kind != 0) continue;
+            o.a[0] = kbuf.position() / FLOATS;
+            kbuf.put(o.data, 0, o.n);
+        }
+        kbuf.flip();
+        if (GlBackend.cur.keep(kbuf)) { kept = r; keptBy = GlBackend.cur; }
     }
 
     /** Draws recorded ops again. False (nothing drawn) when they are stale. */
@@ -257,9 +280,11 @@ public final class Gfx {
         if (r.size == 0) return true;
         ensure();
         flush();
+        boolean fromKept = r == kept && keptBy == GlBackend.cur && !(Hook.featOff && "keep".equals(Hook.BENCH_FEAT)); // dev A/B: -Dnether.benchFeat=keep
         for (int i = 0; i < r.size; i++) {
             Rec.Op o = r.ops.get(i);
-            if (o.kind == 0) {
+            if (o.kind == 0 && fromKept) GlBackend.cur.drawKept(o.a[0], o.n / FLOATS);
+            else if (o.kind == 0) {
                 buf.clear();
                 buf.put(o.data, 0, o.n).flip();
                 GlBackend.cur.draw(buf, o.n / FLOATS);
@@ -694,6 +719,13 @@ public final class Gfx {
         return pen;
     }
 
+    /** The java.awt face behind face index f (theme slots resolved as text draws them), for baking text off the render thread. */
+    public static Font awtFont(int f) {
+        f = hf(f);
+        Font fo = f >= 0 && f < fonts.length ? fonts[f] : null;
+        return fo != null ? fo : fonts[SEMI];
+    }
+
     /**
      * Text in framebuffer pixels. Rasterise close to the final size so projected labels do not get softened by
      * scaling a much larger glyph down from the next 8 px step.
@@ -719,13 +751,6 @@ public final class Gfx {
         int px = freePx(size);
         float w = 0;
         for (int i = 0; i < str.length(); i++) { char c = str.charAt(i); w += advFree(f, px, c, glyph(f, px, c)); }
-    /** The java.awt face behind face index f (theme slots resolved as text draws them), for baking text off the render thread. */
-    public static Font awtFont(int f) {
-        f = hf(f);
-        Font fo = f >= 0 && f < fonts.length ? fonts[f] : null;
-        return fo != null ? fo : fonts[SEMI];
-    }
-
         return w * size;
     }
 

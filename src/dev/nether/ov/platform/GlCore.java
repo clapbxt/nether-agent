@@ -244,6 +244,7 @@ public final class GlCore extends GlBackend {
         GL20.glUniform1i(uImg, 1);
         GL30.glBindVertexArray(vao);
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
+        inKept = false;
     }
 
     private void identityMap() {
@@ -257,8 +258,39 @@ public final class GlCore extends GlBackend {
     }
 
     @Override public void draw(FloatBuffer data, int verts) {
+        if (inKept) { inKept = false; GL30.glBindVertexArray(vao); }
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, data, GL15.GL_STREAM_DRAW);
         GL11.glDrawArrays(GL11.GL_TRIANGLES, 0, verts);
+    }
+
+    /** the recorded HUD's own vertex array + buffer (Performance "Reuse HUD drawing"): replays upload nothing */
+    private int kvao, kvbo;
+    private boolean inKept;
+
+    @Override public boolean keep(FloatBuffer data) {
+        if (kvao == 0) {
+            kvao = GL30.glGenVertexArrays();
+            kvbo = GL15.glGenBuffers();
+            GL30.glBindVertexArray(kvao);
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, kvbo);
+            int[] sizes = {2, 2, 4, 2, 4};
+            int off = 0;
+            for (int i = 0; i < sizes.length; i++) {
+                GL20.glEnableVertexAttribArray(i);
+                GL20.glVertexAttribPointer(i, sizes[i], GL11.GL_FLOAT, false, FLOATS * 4, off * 4L);
+                off += sizes[i];
+            }
+            GL30.glBindVertexArray(vao);
+            inKept = false;
+        } else GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, kvbo);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, data, GL15.GL_DYNAMIC_DRAW);
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, vbo);
+        return true;
+    }
+
+    @Override public void drawKept(int first, int verts) {
+        if (!inKept) { inKept = true; GL30.glBindVertexArray(kvao); }
+        GL11.glDrawArrays(GL11.GL_TRIANGLES, first, verts);
     }
 
     /** unpack state (alignment, row length, skip rows, skip pixels) into ps; returns the bound pixel-unpack buffer */

@@ -68,6 +68,15 @@ public abstract class GlBackend {
     /** Uploads and draws `verts` vertices (the buffer is already flipped). */
     public abstract void draw(FloatBuffer data, int verts);
 
+    /**
+     * Stores a recorded HUD's whole vertex stream in a buffer of its own (inside a frame, after begin), so replays draw
+     * it with {@link #drawKept} and upload nothing. False when the backend can't keep one (replays upload as before).
+     */
+    public boolean keep(FloatBuffer data) { return false; }
+
+    /** Draws `verts` vertices of the kept buffer from vertex `first`; the next {@link #draw} goes back to the stream buffer. */
+    public void drawKept(int first, int verts) { }
+
     /** Writes a w x h block of coverage bytes into the atlas at (x, y); the atlas is bound. */
     public abstract void upload(int x, int y, int w, int h, ByteBuffer px);
 
