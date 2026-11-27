@@ -64,12 +64,14 @@ final class LyricSprites {
 
     /** Look of a word, everything that changes its pixels. col = highlight colour, ga1 / ga2 = the two glow colours. */
     static final class Look {
-        int face, col, ga1, ga2;
-        String style;
+        int face, col, ga1, ga2, col2;
+        String style, fill = "Solid";
         float glow, outline;
+        boolean graded() { return !fill.equals("Solid"); }
         String id(String text, int lod) {
             return text + '\u0001' + face + '|' + style + '|' + Math.round(glow * 20) + '|' + Math.round(outline * 20) + '|'
-                + Integer.toHexString(col) + '|' + Integer.toHexString(ga1) + '|' + Integer.toHexString(ga2) + '|' + lod;
+                + Integer.toHexString(col) + '|' + Integer.toHexString(ga1) + '|' + Integer.toHexString(ga2) + '|' + lod
+                + (graded() ? "|" + fill + Integer.toHexString(col2) : "");
         }
     }
 
@@ -134,6 +136,7 @@ final class LyricSprites {
     private static Look copy(Look l) {
         Look c = new Look();
         c.face = l.face; c.col = l.col; c.ga1 = l.ga1; c.ga2 = l.ga2; c.style = l.style; c.glow = l.glow; c.outline = l.outline;
+        c.fill = l.fill; c.col2 = l.col2;
         return c;
     }
 
@@ -251,10 +254,19 @@ final class LyricSprites {
             }
         }
         // ---- the word itself, white (bottom half; Chrome, Sunset and Hologram live whole in the top half)
+        boolean graded = l.graded() && !(chrome || sunset || holo); // the colour fill: baked in, drawn untinted
         if (neon) { // just the hot core of the tube
-            fill(g, shape, bx, by + half, 0xFFFFFFFF, 0.22f);
-            stroke(g, shape, bx, by + half, Math.max(0.9f, lod * 0.032f), 0xFFFFFFFF, 1);
-        } else if (!(chrome || sunset || holo)) fill(g, shape, bx, by + half, 0xFFFFFFFF, 1);
+            if (graded) {
+                fillPaint(g, shape, bx, by + half, gradient(l, gb, 0.55f, 0.3f));
+                strokePaint(g, shape, bx, by + half, Math.max(0.9f, lod * 0.032f), gradient(l, gb, 0.55f, 1));
+            } else {
+                fill(g, shape, bx, by + half, 0xFFFFFFFF, 0.22f);
+                stroke(g, shape, bx, by + half, Math.max(0.9f, lod * 0.032f), 0xFFFFFFFF, 1);
+            }
+        } else if (!(chrome || sunset || holo)) {
+            if (graded) fillPaint(g, shape, bx, by + half, gradient(l, gb, 0, 1));
+            else fill(g, shape, bx, by + half, 0xFFFFFFFF, 1);
+        }
         g.dispose();
         out.w = w; out.half = half; out.lod = lod;
         out.cx = bx + adv / 2;
@@ -276,6 +288,41 @@ final class LyricSprites {
         g.setPaint(p);
         g.fill(s);
         g.setTransform(t);
+    }
+
+    private static void strokePaint(Graphics2D g, Shape s, float x, float y, float width, java.awt.Paint p) {
+        AffineTransform t = g.getTransform();
+        g.translate(x, y);
+        g.setPaint(p);
+        g.setStroke(new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.draw(s);
+        g.setTransform(t);
+    }
+
+    /** The colour fill of a word (look l: Vertical / Horizontal / Diagonal gradient, or Spiral) over glyph bounds gb, lightened toward white and at alpha a. */
+    private static java.awt.Paint gradient(Look l, Rectangle2D gb, float lighten, float a) {
+        int al = Math.round(255 * a) << 24;
+        int c1 = Gfx.mix(l.col | 0xFF000000, 0xFFFFFFFF, lighten) & 0xFFFFFF | al, c2 = Gfx.mix(l.col2 | 0xFF000000, 0xFFFFFFFF, lighten) & 0xFFFFFF | al;
+        float x0 = (float) gb.getMinX(), x1 = (float) Math.max(gb.getMaxX(), gb.getMinX() + 1), y0 = (float) gb.getMinY(), y1 = (float) Math.max(gb.getMaxY(), gb.getMinY() + 1);
+        float[] at = {0f, 1f};
+        Color[] cs = {new Color(c1, true), new Color(c2, true)};
+        switch (l.fill) {
+            case "Horizontal": return new LinearGradientPaint(x0, 0, x1, 0, at, cs);
+            case "Diagonal": return new LinearGradientPaint(x0, y0, x1, y1, at, cs);
+            case "Spiral": { // colour turns round the word's centre and drifts with the distance from it
+                int iw = Math.max(2, Math.min(512, (int) Math.ceil(x1 - x0) + 1)), ih = Math.max(2, Math.min(512, (int) Math.ceil(y1 - y0) + 1));
+                BufferedImage t = new BufferedImage(iw, ih, BufferedImage.TYPE_INT_ARGB);
+                double rmax = 0.5 * Math.hypot(iw, ih);
+                for (int y = 0; y < ih; y++) for (int x = 0; x < iw; x++) {
+                    double dx = x - iw / 2.0, dy = y - ih / 2.0;
+                    double u = Math.atan2(dy, dx) / (2 * Math.PI) + 1.5 * Math.hypot(dx, dy) / rmax;
+                    u -= Math.floor(u);
+                    t.setRGB(x, y, Gfx.mix(c1, c2, (float) Math.abs(2 * u - 1)));
+                }
+                return new java.awt.TexturePaint(t, new Rectangle2D.Float(x0, y0, iw, ih));
+            }
+            default: return new LinearGradientPaint(0, y0, 0, y1, at, cs);
+        }
     }
 
     private static void fill(Graphics2D g, Shape s, float x, float y, int col, float a) {

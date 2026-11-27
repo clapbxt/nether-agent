@@ -46,13 +46,14 @@ public final class QuickJoin {
         volatile int online = -1, max = -1;
         volatile long ping = -1, at;
         boolean last;
+        String err;
         Srv(String name, String ip, String icon64) { this.name = name; this.ip = ip; this.icon64 = icon64; }
     }
 
     private static volatile List<Srv> servers = Collections.emptyList();
     private static final Map<String, Srv> extra = new HashMap<>();
     private static volatile boolean busy;
-    private static long fileM = -2, kickAt, trackAt;
+    private static long fileM = -2, kickAt, trackAt, listedAt;
     /** connecting failed once on this version: the card stays hidden */
     private static boolean broken;
 
@@ -100,10 +101,153 @@ public final class QuickJoin {
      */
     /** Servers of the multiplayer list (name, address), last played first: the party's destination picker. */
     public static List<String[]> list() {
+        listedAt = System.currentTimeMillis();
         kick();
         List<String[]> l = new ArrayList<>();
         for (Srv s : rows(12)) l.add(new String[] {s.name, s.ip});
         return l;
+    }
+
+    // ---------------------------------------------------------------- editing the multiplayer list (servers.dat)
+
+    private static File serversFile() { return new File(System.getProperty("user.dir"), "servers.dat"); }
+
+    /** servers.dat as read (types kept: icon, hidden and the rest of each entry survive an edit). */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> readRoot() throws IOException {
+        File f = serversFile();
+        if (f.isFile() && f.length() < (8 << 20)) {
+            try (DataInputStream in = new DataInputStream(new FileInputStream(f))) {
+                if (in.readByte() == 10) {
+                    in.readUTF();
+                    Object root = nbt(in, 10, 0);
+                    if (root instanceof Map) return (Map<String, Object>) root;
+                }
+            }
+        }
+        return new HashMap<>();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> entries(Map<String, Object> root) {
+        Object l = root.get("servers");
+        if (l instanceof List) return (List<Object>) l;
+        List<Object> n = new ArrayList<>();
+        root.put("servers", n);
+        return n;
+    }
+
+    private static int tag(Object v) {
+        return v instanceof Byte ? 1 : v instanceof Short ? 2 : v instanceof Integer ? 3 : v instanceof Long ? 4 : v instanceof Float ? 5 : v instanceof Double ? 6 : v instanceof String ? 8 : v instanceof List ? 9 : v instanceof Map ? 10 : 0;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void put(java.io.DataOutputStream o, Object v) throws IOException {
+        switch (tag(v)) {
+            case 1: o.writeByte((Byte) v); break;
+            case 2: o.writeShort((Short) v); break;
+            case 3: o.writeInt((Integer) v); break;
+            case 4: o.writeLong((Long) v); break;
+            case 5: o.writeFloat((Float) v); break;
+            case 6: o.writeDouble((Double) v); break;
+            case 8: o.writeUTF((String) v); break;
+            case 9: {
+                List<Object> l = (List<Object>) v;
+                int t = l.isEmpty() ? 0 : tag(l.get(0));
+                o.writeByte(t);
+                o.writeInt(l.size());
+                for (Object e : l) put(o, e);
+                break;
+            }
+            case 10:
+                for (Map.Entry<String, Object> e : ((Map<String, Object>) v).entrySet()) {
+                    int t = tag(e.getValue());
+                    if (t == 0) continue;
+                    o.writeByte(t);
+                    o.writeUTF(e.getKey());
+                    put(o, e.getValue());
+                }
+                o.writeByte(0);
+                break;
+            default: break;
+        }
+    }
+
+    private static void writeRoot(Map<String, Object> root) throws IOException {
+        File f = serversFile(), tmp = new File(f.getParentFile(), "servers.dat_tmp"), old = new File(f.getParentFile(), "servers.dat_old");
+        try (java.io.DataOutputStream o = new java.io.DataOutputStream(new java.io.FileOutputStream(tmp))) {
+            o.writeByte(10);
+            o.writeUTF("");
+            put(o, root);
+        }
+        if (f.isFile()) java.nio.file.Files.copy(f.toPath(), old.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        java.nio.file.Files.move(tmp.toPath(), f.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        fileM = -2; // read it again at once
+        kickAt = 0;
+    }
+
+    /** Add (old == null) or change (old = its address) a server; false when the address is already in the list or it could not be saved. */
+    @SuppressWarnings("unchecked")
+    public static synchronized boolean saveServer(String old, String name, String ip) {
+        try {
+            Map<String, Object> root = readRoot();
+            List<Object> list = entries(root);
+            Map<String, Object> target = null;
+            for (Object o : list) {
+                if (!(o instanceof Map)) continue;
+                Object a = ((Map<String, Object>) o).get("ip");
+                if (!(a instanceof String)) continue;
+                if (old != null && ((String) a).trim().equalsIgnoreCase(old.trim())) target = (Map<String, Object>) o;
+                else if (((String) a).trim().equalsIgnoreCase(ip)) return false;
+            }
+            if (target == null) { target = new HashMap<>(); list.add(target); }
+            if (old != null && !old.trim().equalsIgnoreCase(ip)) target.remove("icon"); // another server: its icon goes
+            target.put("ip", ip);
+            target.put("name", name);
+            writeRoot(root);
+            return true;
+        } catch (Throwable t) {
+            System.out.println("[nether-agent] servers.dat: " + t);
+            return false;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    public static synchronized void removeServer(String ip) {
+        try {
+            Map<String, Object> root = readRoot();
+            List<Object> list = entries(root);
+            String last = Config.str("menu", "lastServer", "");
+            if (last.trim().equalsIgnoreCase(ip.trim())) { Config.set("menu", "lastServer", ""); extra.remove(last); } // a last played server that was never in the list
+            list.removeIf(o -> o instanceof Map && ((Map<String, Object>) o).get("ip") instanceof String && ((String) ((Map<String, Object>) o).get("ip")).trim().equalsIgnoreCase(ip.trim()));
+            writeRoot(root);
+        } catch (Throwable t) {
+            System.out.println("[nether-agent] servers.dat: " + t);
+        }
+    }
+
+    /** Read the list again and ping every server again (icons, players, latency). */
+    public static void refresh() {
+        fileM = -2;
+        kickAt = 0;
+        for (Srv s : servers) s.at = 0;
+    }
+
+    /** The texture of a server's icon (the multiplayer list's), or null when it has none (yet). */
+    public static String icon(String ip) {
+        Srv s = find(ip);
+        if (s != null) {
+            if (s.img != null && (s.tex == null || !Gfx.hasTexture(s.tex))) { s.tex = "menu.srv." + Integer.toHexString(s.ip.toLowerCase(Locale.ROOT).hashCode()); Gfx.texture(s.tex, s.img, true); }
+            return s.tex != null && Gfx.hasTexture(s.tex) ? s.tex : null;
+        }
+        return null;
+    }
+
+    /** A listed server by address: the multiplayer list's, or the last played one that is not in it. */
+    private static Srv find(String ip) {
+        for (Srv s : servers) if (s.ip.equalsIgnoreCase(ip)) return s;
+        for (Srv s : extra.values()) if (s.ip.equalsIgnoreCase(ip)) return s;
+        return null;
     }
 
     static void card(float x, float bottom, float w, float topLimit, Object screen) {
@@ -222,8 +366,9 @@ public final class QuickJoin {
         long now = System.currentTimeMillis();
         if (busy || now < kickAt) return;
         kickAt = now + 2000;
-        final boolean ping = MainMenu.MODULE.bool("ping");
-        final List<Srv> want = rows((int) Math.round(MainMenu.MODULE.num("servers")));
+        // the game mode selector's server cards want their icons, like the game's own server list (which always pings)
+        final boolean ping = MainMenu.MODULE.bool("ping") || now - listedAt < 5000;
+        final List<Srv> want = rows(now - listedAt < 5000 ? 12 : (int) Math.round(MainMenu.MODULE.num("servers"))); // the game mode selector shows up to 12: ping those too, for their icons
         busy = true;
         Thread t = new Thread(() -> {
             try {
@@ -310,6 +455,29 @@ public final class QuickJoin {
         }
     }
 
+    private static int proto;
+
+    /** The running game's protocol number (version.json in the client jar, 1.14+), else 47 (1.8). */
+    @SuppressWarnings("unchecked")
+    private static int protocol() {
+        if (proto != 0) return proto;
+        int p = 47;
+        try {
+            ClassLoader cl = Game.mc() != null ? Game.mc().getClass().getClassLoader() : QuickJoin.class.getClassLoader();
+            try (java.io.InputStream in = cl.getResourceAsStream("version.json")) {
+                if (in != null) {
+                    ByteArrayOutputStream b = new ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    for (int n; (n = in.read(buf)) > 0 && b.size() < (1 << 16); ) b.write(buf, 0, n);
+                    Object j = Json.parse(new String(b.toByteArray(), StandardCharsets.UTF_8));
+                    Object v = j instanceof Map ? ((Map<String, Object>) j).get("protocol_version") : null;
+                    if (v instanceof Number && ((Number) v).intValue() > 0) p = ((Number) v).intValue();
+                }
+            }
+        } catch (Throwable ignored) { }
+        return proto = p;
+    }
+
     /** Server List Ping (1.7+ status protocol): MOTD, players, favicon, then a ping/pong for latency. */
     @SuppressWarnings("unchecked")
     private static void ping(Srv s) {
@@ -342,7 +510,7 @@ public final class QuickJoin {
                 DataOutputStream h = new DataOutputStream(hb);
                 byte[] hn = host.getBytes(StandardCharsets.UTF_8);
                 h.writeByte(0);
-                varint(h, 47);
+                varint(h, protocol()); // the game's own: some anti-bot proxies drop status pings from versions they don't serve
                 varint(h, hn.length);
                 h.write(hn);
                 h.writeShort(port);
@@ -391,6 +559,7 @@ public final class QuickJoin {
             s.state = 2;
         } catch (Throwable t) {
             s.state = 3;
+            if (s.err == null) { s.err = String.valueOf(t); System.out.println("[nether-agent] quick join ping " + s.ip + ": " + t); }
         }
         s.at = System.currentTimeMillis();
     }

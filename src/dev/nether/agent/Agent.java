@@ -112,6 +112,10 @@ public final class Agent {
     private static final Map<String, String> CULL_HOOKS = new HashMap<>();
     /** Block entity culling: the block entity render dispatcher in every naming (method found by shape, see beShape). */
     private static final Map<String, String> BECULL_HOOKS = new HashMap<>();
+    /** The game's panorama renderer (CubeMap): its render(Minecraft, float...) asks Hook.pano() first. */
+    private static final Set<String> PANO_HOOKS = new HashSet<>(java.util.Arrays.asList(
+        "net/minecraft/class_751", // Fabric intermediary CubeMapRenderer
+        "net/minecraft/client/renderer/CubeMap")); // Mojang names: 26.x, Forge 1.17+, NeoForge
 
     private static void nameTargets() {
         BECULL_HOOKS.put("net/minecraft/class_824", ""); // Fabric BlockEntityRenderDispatcher (shape matches 1.21.9+ only)
@@ -681,6 +685,7 @@ public final class Agent {
             String[] nh = BARE ? null : NAME_HOOKS.get(name), lh = LABEL_HOOKS.get(name), fh = FLOAT_HOOKS.get(name), vh = VIEW_HOOKS.get(name), lk = LOOK_HOOKS.get(name);
             String ct = CHAT_HOOKS.get(name);
             boolean cu = CULL_HOOKS.containsKey(name), bc = BECULL_HOOKS.containsKey(name);
+            if (!BARE && PANO_HOOKS.contains(name)) return pano(bytes);
             if (!BARE && (nh != null || lh != null || fh != null || vh != null || lk != null || ct != null || cu || bc)) {
                 // one class can carry several hooks (RendererLivingEntity: nametag + ride fade): each patch works on the last one's result
                 byte[] b = bytes, r;
@@ -798,6 +803,54 @@ public final class Agent {
                 return cw.toByteArray();
             } catch (Throwable t) {
                 System.out.println("[nether-agent] block entity culling hook failed: " + t);
+                return null;
+            }
+        }
+
+        /** CubeMap.render: one non-static void method of (an object, then floats only). */
+        private static boolean panoShape(int access, String desc) {
+            return (access & Opcodes.ACC_STATIC) == 0 && desc.matches("\\(L[^;]+;F{2,3}\\)V");
+        }
+
+        /** CubeMap.render(...) starts with: if (Hook.pano()) return; */
+        private static byte[] pano(byte[] bytes) {
+            try {
+                ClassReader cr = new ClassReader(bytes);
+                final int[] n = {0};
+                cr.accept(new ClassVisitor(Opcodes.ASM9) {
+                    @Override
+                    public MethodVisitor visitMethod(int access, String mname, String desc, String sig, String[] ex) {
+                        if (panoShape(access, desc)) n[0]++;
+                        return null;
+                    }
+                }, ClassReader.SKIP_CODE);
+                if (n[0] != 1) { System.out.println("[nether-agent] menu panorama: " + n[0] + " render candidates in " + cr.getClassName() + ", not hooked"); return null; }
+                ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS);
+                cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {
+                    @Override
+                    public MethodVisitor visitMethod(int access, String mname, String desc, String sig, String[] ex) {
+                        MethodVisitor mv = super.visitMethod(access, mname, desc, sig, ex);
+                        if (!panoShape(access, desc)) return mv;
+                        return new MethodVisitor(Opcodes.ASM9, mv) {
+                            @Override
+                            public void visitCode() {
+                                super.visitCode();
+                                dev.nether.shaded.asm.Label go = new dev.nether.shaded.asm.Label();
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOK, "pano", "()Z", false);
+                                super.visitJumpInsn(Opcodes.IFEQ, go);
+                                super.visitInsn(Opcodes.RETURN);
+                                super.visitLabel(go);
+                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null); // locals = the arguments: the entry frame
+                                super.visitInsn(Opcodes.NOP);
+                            }
+                        };
+                    }
+                }, 0);
+                Hook.panoHooked = true;
+                System.out.println("[nether-agent] hooked the menu panorama (" + cr.getClassName() + ")");
+                return cw.toByteArray();
+            } catch (Throwable t) {
+                System.out.println("[nether-agent] menu panorama hook failed: " + t);
                 return null;
             }
         }

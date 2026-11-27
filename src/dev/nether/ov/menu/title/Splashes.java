@@ -9,7 +9,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ThreadLocalRandom;
 
+import dev.nether.ov.features.cosmetics.Capes;
 import dev.nether.ov.framework.Config;
+import dev.nether.ov.framework.Json;
+import dev.nether.ov.framework.Net;
 import dev.nether.ov.menu.Menu;
 import dev.nether.ov.platform.Plat;
 import dev.nether.ov.ui.Gfx;
@@ -26,7 +29,7 @@ import dev.nether.ov.ui.Toast;
 public final class Splashes {
     private Splashes() {}
 
-    static final String[] SOURCES = {"Minecraft", "Mine", "Mix"};
+    static final String[] SOURCES = {"Nether", "Minecraft", "Mine", "Mix"};
     /** the line under the logo is this wide (MainMenu.logo); longer ones would end in "..." */
     static final float FIT_W = 300;
     static final int MAX_COUNT = 200, MAX_CHARS = 64;
@@ -138,6 +141,27 @@ public final class Splashes {
         return SOURCES[0];
     }
 
+    private static Net.Req req;
+    private static List<String> online = new ArrayList<>();
+
+    /** Nether's own splashes from the player API (edited server-side, no update needed): fetched once per session, cached on disk for 6 h. */
+    static List<String> online() {
+        if (req == null && Capes.API != null) req = Net.get(Capes.API + "/v1/splashes", 6L * 3600 * 1000, 64 * 1024);
+        if (req != null && req.done() && online.isEmpty() && req.ok()) {
+            List<String> l = new ArrayList<>();
+            try {
+                Object o = Json.parse(req.text());
+                Object a = o instanceof java.util.Map ? ((java.util.Map<?, ?>) o).get("splashes") : null;
+                if (a instanceof List) for (Object x : (List<?>) a) {
+                    String c = clean(String.valueOf(x));
+                    if (!c.isEmpty() && l.size() < 500) l.add(c);
+                }
+            } catch (Throwable t) { System.out.println("[nether-agent] online splashes: " + t); }
+            if (!l.isEmpty()) { online = l; gen++; }
+        }
+        return online;
+    }
+
     /** What the title screen shows, given the splash the game picked for it (null when it has none). */
     static String pick(String vanilla) {
         String v = vanilla == null ? null : clean(vanilla);
@@ -145,9 +169,14 @@ public final class Splashes {
         String src = source();
         if (src.equals("Minecraft")) return v;
         if (v != null && MainMenu.MODULE.bool("holidays")) for (String h : HOLIDAY) if (h.equals(v)) return v;
-        List<String> mine = list();
-        if (mine.isEmpty()) return v; // nothing of yours yet: the game's
         ThreadLocalRandom r = ThreadLocalRandom.current();
+        if (src.equals("Nether")) {
+            List<String> on = online();
+            return on.isEmpty() ? v : on.get(r.nextInt(on.size()));
+        }
+        List<String> mine = new ArrayList<>(list());
+        if (src.equals("Mix")) mine.addAll(online());
+        if (mine.isEmpty()) return v; // nothing of yours yet: the game's
         if (src.equals("Mix") && v != null && r.nextBoolean()) return v;
         return mine.get(r.nextInt(mine.size()));
     }
@@ -250,9 +279,9 @@ public final class Splashes {
         // source
         label(fx, y + 128, "SHOW");
         String src = source();
-        float sw = (fw - 16) / 3;
-        String[] tip = {"MINECRAFT", "MINE", "MIX"};
-        for (int i = 0; i < 3; i++) {
+        float sw = (fw - 24) / 4;
+        String[] tip = {"NETHER", "MINECRAFT", "MINE", "MIX"};
+        for (int i = 0; i < 4; i++) {
             float sx = fx + i * (sw + 8);
             boolean on = SOURCES[i].equals(src), hv = Menu.in(sx, y + 138, sw, 30);
             float ht = Menu.an("spsrc" + i, hv);
@@ -261,9 +290,10 @@ public final class Splashes {
             Gfx.textC(Gfx.SEMI, 11, sx + sw / 2, y + 153, on ? Th.tx : Gfx.mix(Th.dim, Th.tx, ht), tip[i], 1.2f);
             if (Menu.hit(sx, y + 138, sw, 30) && !on) { Config.set("menu", "splashSource", SOURCES[i]); gen++; }
         }
-        String note = src.equals("Minecraft") ? "The game's own splashes. Yours are kept for later."
-            : l.isEmpty() ? "Your list is empty, so Minecraft's splashes show until you add one."
-            : src.equals("Mine") ? "Only yours." : "Yours half the time, Minecraft's otherwise.";
+        String note = src.equals("Nether") ? "Nether's splashes, updated online. Minecraft's show if you are offline."
+            : src.equals("Minecraft") ? "The game's own splashes. Yours are kept for later."
+            : l.isEmpty() ? "Your list is empty, so Nether's splashes show until you add one."
+            : src.equals("Mine") ? "Only yours." : "Yours and Nether's mixed with Minecraft's.";
         Gfx.text(Gfx.UI, 10, fx, y + 182, Th.mut, note);
 
         // add / edit field

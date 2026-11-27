@@ -41,7 +41,7 @@ import dev.nether.ov.ui.Icons;
  * supplier (1.8.9: the cape location, every frame) picks the current one.
  */
 public final class Capes {
-    static final String API = trim(System.getProperty("nether.capeApi"));
+    public static final String API = trim(System.getProperty("nether.capeApi"));
     private static final String DEV = System.getProperty("nether.capeDev");
     /** re-ask about a player this often: the API answers only for launchers running now (issue #21), so leaving / joining shows within minutes */
     private static final long REQUERY_MS = 2 * 60_000L;

@@ -35,8 +35,10 @@ import dev.nether.ov.ui.Th;
  * (see Q_*): LRCLIB's word-synced "lyricsfile" (hasWordSync) beats NetEase word timing beats line-synced LRC beats
  * plain text, and a later, better answer replaces a shown one. Sped-up / slowed / nightcore uploads borrow the
  * original's synced lyrics stretched to their length. Answers are cached on disk by
- * {@link Net}; nothing is bundled or re-shared. "On screen" is a karaoke panel: the current line fills word by word as
- * it is sung, instrumental breaks show three filling dots. "In world" follows River Client's lyric scene, projected by
+ * {@link Net}; nothing is bundled or re-shared. This is the Music module: the player source and media keys, and the
+ * lyrics in the world. The on-screen karaoke panel is the Karaoke HUD widget ({@link Karaoke}), drawn by this class with
+ * the widget's own panel settings ({@link #skin}): the current line fills word by word as it is sung, instrumental
+ * breaks show three filling dots. In the world it follows River Client's lyric scene, projected by
  * the overlay itself ({@link Project}), no renderer code: words pop up near the crosshair as they are sung (Scatter),
  * build a row ahead (Row), or whole lines light up word by word (Lines), then fade. Word timing: NetEase Cloud Music's
  * word-by-word lyrics (yrc, looked up alongside and preferred when the song matches), else enhanced LRC stamps, else
@@ -52,9 +54,8 @@ public final class Lyrics extends Module {
     private static final String[] SAMPLE = {"The line that was just sung", "The line being sung now", "The line that comes next"};
     private static final Media.State SAMPLE_TRACK = new Media.State("PREVIEW", "Track title", "Artist name", "Album name", "", true, 72, 214, 1, 0, true, true, true, true);
     private static final int IDLE = 0, LOADING = 1, SYNCED = 2, PLAIN = 3, INSTRUMENTAL = 4, NOT_FOUND = 5, OFFLINE = 6;
-    private static final String[] PROFILE_KEYS = {"enabled", "textStyle", "pairWords", "anchor", "ox", "oy", "scale", "color", "chroma", "labels", "labelColor", "shadow", "bg", "bgAlpha", "accent", "border",
-        "mode", "panelStyle", "lines", "align", "width", "songInfo", "albumArt", "trackProgress", "trackTime", "playerControls", "opacity", "paused", "upper", "panelKey",
-        "wStyle", "worldSize", "dist", "follow", "viewLock", "airMode", "musicNotes", "worldIntro", "preset", "font", "lyricsColor", "glowColor", "glowColor2", "appear", "disappear", "animSpeed", "glow", "beatGlow", "motion", "blur", "outline", "curve", "varied", "stars", "motes", "streaks", "density", "ambientColor"};
+    private static final String[] PROFILE_KEYS = {"enabled", "textStyle", "pairWords", "opacity", "upper", "panelKey",
+        "wStyle", "worldSize", "dist", "follow", "viewLock", "airMode", "musicNotes", "worldIntro", "preset", "font", "lyricsColor", "glowColor", "glowColor2", "fillMode", "fillColor2", "appear", "disappear", "animSpeed", "glow", "beatGlow", "motion", "blur", "outline", "curve", "varied", "stars", "motes", "streaks", "density", "ambientColor"};
 
     /** lyric lines by start time (seconds) */
     private double[] times = new double[0];
@@ -91,7 +92,6 @@ public final class Lyrics extends Module {
     private String introTitle = "", introArtist = "";
     private float scroll = -9; // -9 = not placed yet
     private int shownIdx = -2;
-    private boolean noWorld;
     private double clk = Double.NaN;
     private long clkNs;
     /** NetEase lookup (word timing): running request, song ids left to try, line-synced lyrics met on the way */
@@ -102,55 +102,46 @@ public final class Lyrics extends Module {
     private boolean local;
 
     public Lyrics() {
-        super("lyrics", "Lyrics", "HUD", "Synced lyrics for the song in Media Player, as a karaoke panel or floating in the world, lit word by word as they are sung. Answers are cached on this PC.", true, false, 0.35, 0.6);
+        super("lyrics", "Music", "Visual", "Synced lyrics for the song playing, floating in the world or across your screen, lit word by word as they are sung. Also picks the player and media keys for the Media Player and Karaoke HUD widgets. Answers are cached on this PC.", false, false, 0, 0);
         java.util.function.BooleanSupplier layout = section("Layout");
-        add(Setting.choice("mode", "Display", "On screen", "On screen", "In world").hint("On screen: a karaoke panel. In world: words float where you look as they are sung.").when(layout));
-        add(Setting.choice("panelStyle", "Screen layout", "Karaoke", "Karaoke", "Focus", "Minimal").hint("Karaoke shows the lines around the current one. Focus and Minimal keep attention on the sung line.").when(layout).when(() -> mode() == 0));
-        add(Setting.choice("lines", "Lines at once", "3", "1", "3", "5").when(layout).when(() -> mode() == 0 && str("panelStyle").equals("Karaoke")));
-        add(Setting.choice("align", "Alignment", "Centre", "Left", "Centre").when(layout).when(() -> mode() == 0));
-        add(Setting.slider("width", "Panel width", 160, 420, 2, 260).when(layout).when(() -> mode() == 0));
-        add(Setting.bool("songInfo", "Song info", true).when(layout).when(() -> mode() == 0 && !str("panelStyle").equals("Minimal")));
-        add(Setting.bool("albumArt", "Album art", true).when(layout).when(() -> mode() == 0 && bool("songInfo")));
-        add(Setting.bool("trackProgress", "Track progress", true).when(layout).when(() -> mode() == 0 && !str("panelStyle").equals("Minimal")));
-        add(Setting.choice("trackTime", "Track time", "Elapsed / total", "Elapsed / total", "Remaining", "Hidden").when(layout).when(() -> mode() == 0 && bool("trackProgress")));
-        add(Setting.choice("playerControls", "Player controls", "On hover", "Off", "On hover", "Always").hint("Play/pause, skip and seek from the lyrics panel while the cursor is free.").when(layout).when(() -> mode() == 0 && !str("panelStyle").equals("Minimal")));
         add(Setting.slider("opacity", "Lyrics opacity (%)", 20, 100, 5, 100).when(layout));
-        add(Setting.choice("paused", "When paused", "Keep", "Keep", "Dim", "Hide").when(layout));
         add(Setting.bool("upper", "Uppercase", false).when(layout));
-        add(Setting.choice("wStyle", "World layout", "Air", WORLD_STYLES).hint("Air floats each word near where you look. Sky writes every line large and far out above the horizon, in pairs. Walls prints the line flat on a wall (or the ground) near you. Row and Lines put the line ahead of you. Screen floats the words on your screen instead of in the world.").when(layout).when(() -> mode() == 1));
-        add(Setting.slider("worldSize", "World text size", 0.5, 2.5, 0.05, 1).when(layout).when(() -> mode() == 1));
-        add(Setting.slider("dist", "World distance", 3, 12, 0.5, 6).when(layout).when(() -> mode() == 1));
-        add(Setting.bool("follow", "Follow you", false).hint("Move placed words along with you instead of leaving them where they appeared.").when(layout).when(() -> mode() == 1));
-        add(Setting.bool("viewLock", "View lock", false).hint("Keep lyric words at the same angle in your view as you turn.").when(layout).when(() -> mode() == 1));
-        add(Setting.choice("airMode", "Air style", "Chill", "Chill", "PvP").hint("Chill scatters with soft effects. PvP keeps words clean and quick.").when(layout).when(() -> mode() == 1 && str("wStyle").equals("Air")));
-        add(Setting.bool("musicNotes", "Music notes", true).hint("Show drifting notes during instrumental sections, intros, or when lyrics are unavailable.").when(layout).when(() -> mode() == 1));
-        add(Setting.bool("pairWords", "Pair short words", true).hint("Air: short words like I or the float together with the next word, and stray punctuation is dropped.").when(layout).when(() -> mode() == 1 && str("wStyle").equals("Air")));
-        add(Setting.bool("worldIntro", "Track intro title", true).hint("Briefly show the song title and artist when a new track starts.").when(layout).when(() -> mode() == 1));
+        add(Setting.choice("wStyle", "World layout", "Air", WORLD_STYLES).hint("Air floats each word near where you look. Sky writes every line large and far out above the horizon, in pairs. Walls prints the line flat on a wall (or the ground) near you. Row and Lines put the line ahead of you. Screen floats the words on your screen instead of in the world.").when(layout));
+        add(Setting.slider("worldSize", "World text size", 0.5, 2.5, 0.05, 1).when(layout));
+        add(Setting.slider("dist", "World distance", 3, 12, 0.5, 6).when(layout));
+        add(Setting.bool("follow", "Follow you", false).hint("Move placed words along with you instead of leaving them where they appeared.").when(layout));
+        add(Setting.bool("viewLock", "View lock", false).hint("Keep lyric words at the same angle in your view as you turn.").when(layout));
+        add(Setting.choice("airMode", "Air style", "Chill", "Chill", "PvP").hint("Chill scatters with soft effects. PvP keeps words clean and quick.").when(layout).when(() -> str("wStyle").equals("Air")));
+        add(Setting.bool("musicNotes", "Music notes", true).hint("Show drifting notes during instrumental sections, intros, or when lyrics are unavailable.").when(layout));
+        add(Setting.bool("pairWords", "Pair short words", true).hint("Air: short words like I or the float together with the next word, and stray punctuation is dropped.").when(layout).when(() -> str("wStyle").equals("Air")));
+        add(Setting.bool("worldIntro", "Track intro title", true).hint("Briefly show the song title and artist when a new track starts.").when(layout));
 
         java.util.function.BooleanSupplier style = section("Themes & type");
-        add(Setting.choice("preset", "Theme preset", "HUD", THEME_NAMES).hint("Each theme has a text color and two glow colors. Album follows the cover art. Custom lets you pick all three.").when(style));
+        add(Setting.choice("preset", "Colours", "Custom", THEME_NAMES).hint("Custom lets you pick the text color, two glow colors and a fill. Album follows the cover art.").when(style));
         add(Setting.choice("font", "Lyrics font", "Righteous", FONT_NAMES).hint("Semibold and Regular use Nether's active Pixel or Barlow typeface. The others are display fonts for lyrics.").when(style));
         add(Setting.choice("textStyle", "Text style", "Neon", TEXT_STYLES).hint("Neon is a lit glass tube with a hot core. Chrome is polished metal with a bright horizon. Sunset fades each letter from the highlight color into the second glow color. Sticker is a bold die-cut border with a hard shadow that reads on any background. Hologram is a flickering projection with scanlines. Retro extrudes the words in the second glow color. Echo trails two copies above. Glitch tears the words into shifting slices.").when(style));
-        add(Setting.color("lyricsColor", "Custom highlight", "#FF6157").when(style).when(() -> str("preset").equals("Custom")));
-        add(Setting.color("glowColor", "Custom glow", "#FFB020").when(style).when(() -> str("preset").equals("Custom")));
+        add(Setting.color("lyricsColor", "Text color", "#FF6157").when(style).when(() -> str("preset").equals("Custom")));
+        add(Setting.color("glowColor", "Glow color", "#FFB020").when(style).when(() -> str("preset").equals("Custom")));
         add(Setting.color("glowColor2", "Second glow color", "#55D9FF").when(style).when(() -> str("preset").equals("Custom")));
+        add(Setting.choice("fillMode", "Text fill", "Solid", "Solid", "Vertical", "Horizontal", "Diagonal", "Spiral").hint("Blend the text color into a second color across each word. Chrome, Sunset and Hologram use their own fills.").when(style).when(() -> str("preset").equals("Custom")));
+        add(Setting.color("fillColor2", "Fill color 2", "#55D9FF").when(style).when(() -> str("preset").equals("Custom") && !str("fillMode").equals("Solid")));
 
         java.util.function.BooleanSupplier animation = section("Animation & effects");
-        add(Setting.choice("appear", "Word entrance", "Pop", "Fade", "Rise", "Pop", "Neon").hint("Neon flickers each word on like a sign lighting up.").when(animation).when(() -> mode() == 1));
-        add(Setting.choice("disappear", "Word exit", "Fade", "Fade", "Drift", "Float up").when(animation).when(() -> mode() == 1));
-        add(Setting.slider("animSpeed", "Animation speed", 0.5, 2, 0.1, 1).when(animation).when(() -> mode() == 1));
+        add(Setting.choice("appear", "Word entrance", "Pop", "Fade", "Rise", "Pop", "Neon").hint("Neon flickers each word on like a sign lighting up.").when(animation));
+        add(Setting.choice("disappear", "Word exit", "Fade", "Fade", "Drift", "Float up").when(animation));
+        add(Setting.slider("animSpeed", "Animation speed", 0.5, 2, 0.1, 1).when(animation));
         add(Setting.slider("glow", "Glow (%)", 0, 100, 5, 60).when(animation));
         add(Setting.bool("beatGlow", "Pulse on sung words", true).hint("Let the current word brighten and breathe as it is sung.").when(animation));
-        add(Setting.slider("motion", "Pop and drift (%)", 0, 100, 5, 60).hint("Reduce motion turns movement off; Nether's Reduce motion setting also applies.").when(animation).when(() -> mode() == 1));
-        add(Setting.slider("blur", "Motion blur (%)", 0, 100, 5, 50).when(animation).when(() -> mode() == 1));
-        add(Setting.slider("outline", "Word outline (%)", 0, 100, 5, 60).when(animation).when(() -> mode() == 1));
-        add(Setting.bool("curve", "Curve world rows", false).hint("Bends Row and Sky lines into an arc and tilts Walls lines a little.").when(animation).when(() -> mode() == 1 && (str("wStyle").equals("Row") || str("wStyle").equals("Walls") || str("wStyle").equals("Sky"))));
-        add(Setting.bool("varied", "Vary word sizes", false).when(animation).when(() -> mode() == 1));
-        add(Setting.bool("stars", "Sky lyric stars", true).hint("Add soft lyric-colored glints around Sky lines.").when(animation).when(() -> mode() == 1 && str("wStyle").equals("Sky")));
-        add(Setting.bool("motes", "Floating lyric lights", false).hint("Small drifting lights follow active world lyrics.").when(animation).when(() -> mode() == 1));
-        add(Setting.bool("streaks", "Falling lyric streaks", false).hint("Occasional short light trails around the current line.").when(animation).when(() -> mode() == 1));
-        add(Setting.slider("density", "Ambient density", 1, 12, 1, 5).when(animation).when(() -> mode() == 1 && (bool("motes") || bool("streaks") || bool("stars"))));
-        add(Setting.color("ambientColor", "Ambient color", "#75D6FF").when(animation).when(() -> mode() == 1 && !str("preset").equals("Album") && (bool("motes") || bool("streaks") || bool("stars"))));
+        add(Setting.slider("motion", "Pop and drift (%)", 0, 100, 5, 60).hint("Reduce motion turns movement off; Nether's Reduce motion setting also applies.").when(animation));
+        add(Setting.slider("blur", "Motion blur (%)", 0, 100, 5, 50).when(animation));
+        add(Setting.slider("outline", "Word outline (%)", 0, 100, 5, 60).when(animation));
+        add(Setting.bool("curve", "Curve world rows", false).hint("Bends Row and Sky lines into an arc and tilts Walls lines a little.").when(animation).when(() -> (str("wStyle").equals("Row") || str("wStyle").equals("Walls") || str("wStyle").equals("Sky"))));
+        add(Setting.bool("varied", "Vary word sizes", false).when(animation));
+        add(Setting.bool("stars", "Sky lyric stars", true).hint("Add soft lyric-colored glints around Sky lines.").when(animation).when(() -> str("wStyle").equals("Sky")));
+        add(Setting.bool("motes", "Floating lyric lights", false).hint("Small drifting lights follow active world lyrics.").when(animation));
+        add(Setting.bool("streaks", "Falling lyric streaks", false).hint("Occasional short light trails around the current line.").when(animation));
+        add(Setting.slider("density", "Ambient density", 1, 12, 1, 5).when(animation).when(() -> (bool("motes") || bool("streaks") || bool("stars"))));
+        add(Setting.color("ambientColor", "Ambient color", "#75D6FF").when(animation).when(() -> !str("preset").equals("Album") && (bool("motes") || bool("streaks") || bool("stars"))));
 
         java.util.function.BooleanSupplier sync = section("Sync & controls");
         add(Setting.slider("offset", "Timing (ms)", -2000, 2000, 50, 0).hint("Positive shows lyrics later. The nudge keys adjust only the song playing.").when(sync));
@@ -158,6 +149,12 @@ public final class Lyrics extends Module {
         add(Setting.key("earlierKey", "Nudge earlier key", -1).hint("-100 ms, saved for the current song.").when(sync));
         add(Setting.action("refetch", "Search lyrics again", "SEARCH", this::refetch).hint("Recheck local lyrics and refresh online results for the current song.").when(sync));
         add(Setting.key("panelKey", "Lyrics settings key", 79).hint("Default O. Opens the lyric settings from the game."));
+
+        java.util.function.BooleanSupplier player = section("Player & keys");
+        add(Setting.choice("source", "Source", "Auto", "Auto", "Prefer Spotify", "Prefer browser").hint("Auto follows the player Windows shows in its volume flyout").when(player));
+        add(Setting.key("playKey", "Play / pause key", -1).hint("Works whether Music is on or off. Delete clears a key").when(player));
+        add(Setting.key("nextKey", "Next track key", -1).when(player));
+        add(Setting.key("prevKey", "Previous track key", -1).when(player));
 
         java.util.function.BooleanSupplier profiles = section("Profiles & reset");
         add(Setting.choice("profileSlot", "Look slot", "1", "1", "2", "3").when(profiles));
@@ -177,8 +174,7 @@ public final class Lyrics extends Module {
     }
 
     /** Theme presets: text color, first and second glow color (Neon splits the text into the two glows). */
-    private static final String[] THEME_NAMES = {"HUD", "Album", "Nether", "Ice", "Aurora", "Sunset", "Gold", "Violet", "Neon pink", "Lavender", "Ocean", "Sakura",
-        "Vaporwave", "Galaxy", "Toxic", "Blood moon", "Candy", "Midnight", "Matrix", "Enchant", "Mono", "Custom"};
+    private static final String[] THEME_NAMES = {"Custom", "Album"};
     private static final Map<String, int[]> THEMES = new LinkedHashMap<>();
     static {
         THEMES.put("Nether", new int[] {0xFFFF705C, 0xFFFFB020, 0xFFFF2F4F});
@@ -219,11 +215,10 @@ public final class Lyrics extends Module {
     /** Settings shown instead of the saved ones while a preview card draws (font, theme, style...); null = none. */
     private Map<String, Object> peek;
 
-    @Override public boolean bool(String k) { Object v = peek == null ? null : peek.get(k); return v instanceof Boolean ? (Boolean) v : super.bool(k); }
-    @Override public double num(String k) { Object v = peek == null ? null : peek.get(k); return v instanceof Number ? ((Number) v).doubleValue() : super.num(k); }
-    @Override public String str(String k) { Object v = peek == null ? null : peek.get(k); return v instanceof String ? (String) v : super.str(k); }
+    @Override public boolean bool(String k) { Object v = peek == null ? null : peek.get(k); return v instanceof Boolean ? (Boolean) v : skin != null && SKIN_KEYS.contains(k) ? skin.bool(k) : super.bool(k); }
+    @Override public double num(String k) { Object v = peek == null ? null : peek.get(k); return v instanceof Number ? ((Number) v).doubleValue() : skin != null && SKIN_KEYS.contains(k) ? skin.num(k) : super.num(k); }
+    @Override public String str(String k) { Object v = peek == null ? null : peek.get(k); return v instanceof String ? (String) v : skin != null && SKIN_KEYS.contains(k) ? skin.str(k) : super.str(k); }
 
-    static String[] themeNames() { return THEME_NAMES; }
     static String[] fontNames() { return FONT_NAMES; }
     /** Text, first and second glow colour of theme name (Album / HUD / Custom resolve like the lyrics do). */
     int[] themeColors(String name) {
@@ -253,6 +248,13 @@ public final class Lyrics extends Module {
         return t != null ? t[1] : Gfx.mix(color(), 0xFFFFB020, 0.45f);
     }
 
+    /** Second fill colour (Text fill gradients / spiral). */
+    private int fillColor2() {
+        String p = str("preset");
+        if (p.equals("Custom")) return Config.color(id, "fillColor2", 0xFF55D9FF);
+        return glowColor();
+    }
+
     private int glowColor2() {
         String p = str("preset");
         if (p.equals("Custom")) return Config.color(id, "glowColor2", 0xFF55D9FF);
@@ -276,8 +278,6 @@ public final class Lyrics extends Module {
     }
 
     @Override public boolean available() { return Media.supported(); }
-    /** A HUD box only on screen; in world mode the words float in the world (the box stands in only where the camera is unknown). */
-    @Override public boolean hudPiece() { return mode() == 0 || noWorld && !Menu.editing(); }
     @Override public String lockNote() { return !available() ? "NOT AVAILABLE ON THIS OS" : super.lockNote(); }
 
     // ---------------------------------------------------------------- lookup
@@ -312,6 +312,33 @@ public final class Lyrics extends Module {
             Config.set(id, "twoTone", null);
             Config.set(id, "v5", true);
         }
+        if (Config.raw(id, "v6") == null) { // theme presets became the colour maker: a named theme's colours move into the pickers
+            Object po = Config.raw(id, "preset");
+            String p = po instanceof String ? (String) po : "HUD";
+            if (!p.equals("Custom") && !p.equals("Album")) {
+                int[] c = themeColors(p);
+                String[] keys = {"lyricsColor", "glowColor", "glowColor2"};
+                for (int i = 0; i < 3; i++) Config.set(id, keys[i], String.format("#%06X", c[i] & 0xFFFFFF));
+                Config.set(id, "preset", "Custom");
+            }
+            Config.set(id, "v6", true);
+        }
+        if (Config.raw(id, "v7") == null) { // Lyrics became Music: its on-screen panel and the Lyrics Bar became the Karaoke widget, the player keys moved here
+            Config.set(id, "v7", true);
+            String k = Modules.KARAOKE.id;
+            boolean screen = !"In world".equals(Config.raw(id, "mode"));
+            if (screen) for (String key : new String[] {"panelStyle", "lines", "align", "width", "songInfo", "albumArt", "playerControls", "paused",
+                "anchor", "ox", "oy", "x", "y", "scale", "labels", "labelColor", "shadow", "bg", "bgAlpha", "accent", "border"}) {
+                Object v = Config.raw(id, key);
+                if (v != null) Config.set(k, key, v); // Karaoke is new here: it only holds the defaults written at load
+            }
+            if (Config.bool(id, "enabled", false) && screen || Config.bool("lyricsBar", "enabled", false)) Config.set(k, "enabled", true);
+            if (screen) Config.set(id, "enabled", false);
+            for (String key : new String[] {"source", "playKey", "nextKey", "prevKey"}) {
+                Object v = Config.raw("media", key);
+                if (v != null) Config.set(id, key, v);
+            }
+        }
         if (Config.raw(id, "v4") == null) { // the Scatter layout became Air
             if ("Scatter".equals(Config.raw(id, "wStyle"))) Config.set(id, "wStyle", "Air");
             Config.set(id, "v4", true);
@@ -320,7 +347,7 @@ public final class Lyrics extends Module {
 
     @Override public void tick() {
         migrate();
-        if (enabled() && mode() == 1 && skyPassFn == null) { skyPassFn = this::skyPassRun; dev.nether.ov.features.visual.CustomSky.extra = skyPassFn; }
+        if (enabled() && skyPassFn == null) { skyPassFn = this::skyPassRun; dev.nether.ov.features.visual.CustomSky.extra = skyPassFn; }
         if (skyPassFn != null) dev.nether.ov.features.visual.CustomSky.installPass();
         if (!live()) return;
         Media.keep();
@@ -371,7 +398,8 @@ public final class Lyrics extends Module {
 
     private int retries;
 
-    @Override public boolean live() { return super.live() || Modules.LYRICS_BAR.enabled(); }
+    /** Also while the Karaoke widget shows (or is previewed): it draws these lyrics. */
+    @Override public boolean live() { return super.live() || Modules.KARAOKE.live(); }
 
     private void refetch() {
         if (Media.cur == null && track == null) return;
@@ -417,11 +445,6 @@ public final class Lyrics extends Module {
             if (v == null && s != null) v = s.def;
             if (v != null) snapshot.put(k, v);
         }
-        for (Object[] d : Modules.LYRICS_BAR.schema()) {
-            String k = (String) d[0]; Object v = Config.raw(Modules.LYRICS_BAR.id, k);
-            snapshot.put("bar." + k, v == null ? d[1] : v);
-        }
-        snapshot.put("media.lyrics", Config.bool(Modules.MEDIA.id, "lyrics", false));
         Map<String, Object> all = profiles();
         all.put(str("profileSlot"), snapshot);
         Config.set(id, "profiles", all);
@@ -432,8 +455,6 @@ public final class Lyrics extends Module {
         if (!(o instanceof Map)) return;
         @SuppressWarnings("unchecked") Map<String, Object> saved = (Map<String, Object>) o;
         for (String k : PROFILE_KEYS) if (saved.containsKey(k)) Config.set(id, k, saved.get(k));
-        for (Map.Entry<String, Object> e : saved.entrySet()) if (e.getKey().startsWith("bar.")) Config.set(Modules.LYRICS_BAR.id, e.getKey().substring(4), e.getValue());
-        if (saved.get("media.lyrics") instanceof Boolean) Config.set(Modules.MEDIA.id, "lyrics", saved.get("media.lyrics"));
     }
 
     private void deleteProfile() {
@@ -442,11 +463,7 @@ public final class Lyrics extends Module {
         Config.set(id, "profiles", all.isEmpty() ? null : all);
     }
 
-    private void resetExperience() {
-        reset();
-        Modules.LYRICS_BAR.reset();
-        Config.set(Modules.MEDIA.id, "lyrics", false);
-    }
+    private void resetExperience() { reset(); }
 
     private void set(int st) { state = st; stateAt = ms(); }
 
@@ -1173,6 +1190,11 @@ public final class Lyrics extends Module {
     /** Keys from the game's key callback (in play); true swallows. */
     public boolean key(int key) {
         if (key >= 0 && key == (int) num("panelKey") && enabled()) { Input.eatChar(); Menu.openModule(id); return true; }
+        if (key >= 0 && Media.supported()) { // media keys: for the widgets too, so they work with Music off
+            if (key == (int) num("playKey")) { Media.toggle(); return true; }
+            if (key == (int) num("nextKey")) { Media.next(); return true; }
+            if (key == (int) num("prevKey")) { Media.prev(); return true; }
+        }
         if (key < 0 || !enabled()) return false;
         if (key == (int) num("laterKey")) { nudge(100); return true; }
         if (key == (int) num("earlierKey")) { nudge(-100); return true; }
@@ -1183,10 +1205,8 @@ public final class Lyrics extends Module {
 
     // ---------------------------------------------------------------- panel
 
-    private boolean sample() { return Media.cur == null && Modules.sampling(this); }
+    private boolean sample() { return Media.cur == null && Modules.sampling(skin != null ? skin : this); }
     private int rows() { return str("panelStyle").equals("Karaoke") ? Integer.parseInt(str("lines")) : 1; }
-    /** 0 on screen, 1 in the world (an old "Pinned" counts as in the world). */
-    private int mode() { return str("mode").equals("On screen") ? 0 : 1; }
 
     /** Current lyric for the optional top bar; status strings are kept short enough for its compact layout. */
     String barLyric() {
@@ -1244,23 +1264,50 @@ public final class Lyrics extends Module {
         }
     }
 
-    /** drawn over a menu (title screen, pause, inventory): the panel, whatever the mode (Modules.menuLyrics) */
-    public boolean menu;
+    // ---------------------------------------------------------------- the Karaoke widget's panel
 
-    @Override public boolean visible() {
+    /**
+     * The Karaoke widget while its panel draws: panel layout and box look come from its settings (SKIN_KEYS), the lyric
+     * look (colours, font, style) stays Music's. null = not drawing the panel.
+     */
+    private Module skin;
+    private static final java.util.Set<String> SKIN_KEYS = new java.util.HashSet<>(java.util.Arrays.asList("panelStyle", "lines", "align", "width", "songInfo", "albumArt",
+        "trackProgress", "trackTime", "playerControls", "opacity", "paused", "labels", "shadow", "bg", "bgAlpha", "accent", "border"));
+
+    private <T> T skinned(Module k, java.util.function.Supplier<T> f) {
+        Module was = skin;
+        float w0 = w, h0 = h;
+        skin = k;
+        w = k.w;
+        h = k.h;
+        try { return f.get(); } finally { k.w = w; k.h = h; w = w0; h = h0; skin = was; }
+    }
+
+    /** Karaoke widget: shown now (a song with lyrics or a status, or the sample in the HUD editor / its settings). */
+    boolean panelVisible(Module k) { return skinned(k, this::visible0); }
+    /** Karaoke widget: its size into k.w / k.h. */
+    void panelMeasure(Module k) { skinned(k, () -> { measure0(); return null; }); }
+    /** Karaoke widget: the panel at (x, y), its own units. */
+    void panelDraw(Module k, float x, float y) { skinned(k, () -> { draw0(x, y); return null; }); }
+
+    @Override public int labelColor() { return skin != null ? skin.labelColor() : super.labelColor(); }
+
+    private boolean visible0() {
         if (sample()) return true;
-        if (Media.cur == null || !content() || !(mode() == 0 || noWorld || menu)) return false;
+        if (Media.cur == null || !content()) return false;
         return Media.cur.playing || !str("paused").equals("Hide");
     }
 
-    @Override public void measure() {
+    private void measure0() {
         w = (float) num("width");
         h = headerHeight() + P + (rows() - 1) * ROW + ROWC + (str("panelStyle").equals("Minimal") ? P : 16);
     }
 
+    /** Song info and controls on top; Karaoke has no timeline (the lyrics are its progress), so its header is shorter. */
     private float headerHeight() {
         boolean controls = !str("playerControls").equals("Off");
-        return !str("panelStyle").equals("Minimal") && (bool("songInfo") || bool("trackProgress") || controls) ? HEAD_H : 0;
+        if (str("panelStyle").equals("Minimal") || !(bool("songInfo") || bool("trackProgress") || controls)) return 0;
+        return bool("trackProgress") ? HEAD_H : 40;
     }
 
     /** An intro long enough for the dots before the first line. */
@@ -1268,7 +1315,7 @@ public final class Lyrics extends Module {
 
     private int panelAccent() { return str("preset").equals("HUD") ? Th.ac : color(); }
 
-    @Override public void draw(float x, float y) {
+    private void draw0(float x, float y) {
         float alpha = Gfx.alpha;
         boolean paused = Media.cur != null && !Media.cur.playing;
         float pauseAlpha = paused && str("paused").equals("Dim") ? 0.45f : 1;
@@ -1660,7 +1707,6 @@ public final class Lyrics extends Module {
     }
 
     private void drawWorld0(int fbW, int fbH) {
-        if (mode() == 0) { noWorld = false; clearWorld(); return; }
         float prev = Gfx.s;
         Gfx.s = Gfx.base;
         float W = fbW / Gfx.s, H = fbH / Gfx.s;
@@ -1668,7 +1714,6 @@ public final class Lyrics extends Module {
         String ws0 = wStyle();
         if (!ws0.equals(lastStyle)) { lastStyle = ws0; clearWorld(); } // another layout: start clean
         boolean scr = ws0.equals("Screen");
-        noWorld = c == null && !scr; // camera unknown here (1.8.9 third person): the panel stands in
         Gfx.s = prev;
         if (c == null && !scr) return;
         if (c == null) c = new double[] {0, 0, 0, 0, 0, 70}; // Screen: no world needed
@@ -2298,7 +2343,7 @@ public final class Lyrics extends Module {
      * world. Elsewhere (1.8.9, 1.12.2, 26.3+, the Nether) the overlay draws them at the end of the frame instead.
      */
     private void skyPassRun() {
-        if (!enabled() || mode() != 1 || !wStyle().equals("Sky") || pieces.isEmpty() || Game.level() == null) return;
+        if (!enabled() || !wStyle().equals("Sky") || pieces.isEmpty() || Game.level() == null) return;
         int[] t = dev.nether.ov.features.visual.CustomSky.target();
         if (t == null) return;
         double[] c = Game.camera();
@@ -2604,19 +2649,6 @@ public final class Lyrics extends Module {
         return s == null ? new String[] {"Lights Over the City", "Nether preview"} : new String[] {s.title, s.artist.isEmpty() ? s.app : s.artist};
     }
 
-    /** The on-screen karaoke panel itself at (x, y) scaled by k (menu units), with settings over; returns its {w, h}. */
-    float[] previewPanel(float x, float y, float k, Map<String, Object> over, boolean draw) {
-        Map<String, Object> was = peek;
-        if (over != null) peek = over;
-        float s0 = Gfx.s, w0 = w, h0 = h;
-        try {
-            measure();
-            float[] size = {w * k, h * k};
-            if (draw) { Gfx.s = s0 * k; draw(x / k, y / k); }
-            return size;
-        } finally { Gfx.s = s0; w = w0; h = h0; peek = was; }
-    }
-
     // ---------------------------------------------------------------- demo song for the world preview
 
     private static final double DEMO_LEN = 21;
@@ -2693,6 +2725,10 @@ public final class Lyrics extends Module {
         LyricSprites.Look l = look;
         l.face = font(); l.style = style; l.glow = Math.round(glow * 20) / 20f; l.outline = Math.round(outline * 20) / 20f;
         l.col = col | 0xFF000000; l.ga1 = glowColor(); l.ga2 = glowColor2();
+        l.fill = str("fillMode"); l.col2 = fillColor2() | 0xFF000000;
+        boolean graded = l.graded() && !whole;
+        int lit = color();
+        if (graded && Math.abs((col >> 16 & 255) - (lit >> 16 & 255)) + Math.abs((col >> 8 & 255) - (lit >> 8 & 255)) + Math.abs((col & 255) - (lit & 255)) < 60) col = 0xFFFFFFFF; // lit word: the baked fill shows as it is
         LyricSprites.Sprite sp = LyricSprites.get(s, l, P);
         if (sp == null) { // first frames of a new word, while it bakes: plain
             Gfx.textFree(l.face, P, cx - Gfx.widthFree(l.face, P, s) / 2, cy, Gfx.a(col, a), s);

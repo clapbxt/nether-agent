@@ -39,7 +39,7 @@ final class Profiles {
     private Profiles() {}
 
     private static final String CODE = "NETHER1.";
-    private static final String[] CLIENT_KEYS = {"calm"};
+    private static final String[] CLIENT_KEYS = {"calm", "startPage"};
     static String nameBuf = "";
     /** {name, file, saved at, modules on} newest first */
     private static List<Object[]> list = new ArrayList<>();

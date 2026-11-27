@@ -33,7 +33,7 @@ import dev.nether.ov.features.hud.Stopwatch;
 import dev.nether.ov.features.hud.TntTimer;
 import dev.nether.ov.features.hud.Waypoints;
 import dev.nether.ov.features.lyrics.Lyrics;
-import dev.nether.ov.features.lyrics.LyricsBar;
+import dev.nether.ov.features.lyrics.Karaoke;
 import dev.nether.ov.features.media.MediaPlayer;
 import dev.nether.ov.features.performance.BackgroundFps;
 import dev.nether.ov.features.performance.BackgroundReload;
@@ -65,7 +65,7 @@ public final class Modules {
     public static final Waypoints WAYPOINTS = new Waypoints();
     public static final MediaPlayer MEDIA = new MediaPlayer();
     public static final Lyrics LYRICS = new Lyrics();
-    public static final LyricsBar LYRICS_BAR = new LyricsBar();
+    public static final Karaoke KARAOKE = new Karaoke();
     static final Stopwatch STOPWATCH = new Stopwatch();
     public static final Screenshots SHOTS = new Screenshots();
     static final SelfTag SELFTAG = new SelfTag();
@@ -99,7 +99,7 @@ public final class Modules {
         all.add(WAYPOINTS);
         all.add(MEDIA);
         all.add(LYRICS);
-        all.add(LYRICS_BAR);
+        all.add(KARAOKE);
         // c5
         all.add(new Reach());
         all.add(new Combo());
@@ -333,7 +333,7 @@ public final class Modules {
         if (!menu && (!inGame() || Game.hudHidden() || (Game.screenOpen() && !Game.chatOpen()))) {
             for (Module m : all) m.tick();
             if (!Input.inWorld() || (Game.screenOpen() && !Game.chatOpen())) Hits.clear();
-            if (!Game.hudHidden() && LYRICS.enabled()) menuLyrics(fbW, fbH);
+            if (!Game.hudHidden() && KARAOKE.enabled()) menuLyrics(fbW, fbH);
             return;
         }
         float[] chat = null;
@@ -349,22 +349,20 @@ public final class Modules {
         try { hud(fbW, fbH, chat); } finally { Gfx.round = r0; Gfx.s = prev; }
     }
 
-    /** Title screen and game screens (pause, inventory, options): the lyrics panel stays, alone (issue #23). */
+    /** Title screen and game screens (pause, inventory, options): the Karaoke widget stays, alone (issue #23). */
     private static void menuLyrics(int fbW, int fbH) {
         float prev = Gfx.s;
         boolean r0 = Gfx.round;
         Gfx.round = Th.round();
-        LYRICS.menu = true;
         try {
             // clear of the menu's buttons (the HUD spot often sits on them): bottom centre, on our title screen bottom
             // left above its footer (the centre has the player and their name)
-            if (LYRICS.visible()) {
-                float k = LYRICS.layout(), lw = LYRICS.w * k, lh = LYRICS.h * k;
+            if (KARAOKE.visible()) {
+                float k = KARAOKE.layout(), lw = KARAOKE.w * k, lh = KARAOKE.h * k;
                 boolean title = MainMenu.title;
-                LYRICS.draw((title ? 12 * Gfx.gui : (fbW - lw) / 2) / k, (fbH - lh - (title ? 30 : 10) * Gfx.gui) / k);
+                KARAOKE.draw((title ? 12 * Gfx.gui : (fbW - lw) / 2) / k, (fbH - lh - (title ? 30 : 10) * Gfx.gui) / k);
             }
         } finally {
-            LYRICS.menu = false;
             Gfx.round = r0;
             Gfx.s = prev;
         }
@@ -475,6 +473,12 @@ public final class Modules {
         if (!Config.bool("client", "hintShown", false)) Config.set("client", "hintShown", true);
     }
 
+    /**
+     * A HUD widget: a module drawn as a box on the HUD. Widgets live in the menu's HUD tab and are added to / removed from
+     * the screen in the HUD editor; "on screen" is the module's enabled flag.
+     */
+    public static boolean widget(Module m) { return m.hud && !m.hidden(); }
+
     /** Sample data (armor, effects) only where a user expects a mock-up: the layout editor and the module's settings preview. */
     public static boolean sampling(Module m) { return Input.menuOpen && (Menu.hudEdit || m.id.equals(Menu.page)); }
 
@@ -498,7 +502,7 @@ public final class Modules {
         Waypoints wp = WAYPOINTS;
         if (action == 1 && wp.enabled() && key == (int) wp.num("addKey")) { Input.eatChar(); wp.addHere(true); return true; }
         if (action == 1 && wp.enabled() && key == (int) wp.num("toggleKey")) { wp.flip(); return true; }
-        if (action == 1 && (MEDIA.key(key) || LYRICS.key(key) || STOPWATCH.key(key) || SHOTS.key(key))) return true;
+        if (action == 1 && (LYRICS.key(key) || STOPWATCH.key(key) || SHOTS.key(key))) return true;
         return false;
     }
 

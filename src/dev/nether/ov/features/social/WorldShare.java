@@ -252,7 +252,7 @@ public final class WorldShare {
         if (s == curScreen) return;
         Object before = curScreen;
         curScreen = s;
-        if (s == null || before == null || server() == null || !MainMenu.MODULE.bool("pauseButton")) return;
+        if (s == null || before == null || server() == null) return;
         Boolean lan = lanScreens.get(s.getClass());
         if (lan == null) lanScreens.put(s.getClass(), lan = hasText(s.getClass(), "lanServer.otherPlayers"));
         if (!lan) return;

@@ -212,6 +212,9 @@ public final class Input {
         return Modules.onScroll(y);
     }
 
+    /** One of our own text fields outside the Nether menu has focus (title screen chat / server form): typed text is ours. */
+    public static volatile boolean wantText;
+
     public static boolean onChar(int cp) {
         if (dead) return false;
         if (eatCharAt != 0) {
@@ -220,7 +223,7 @@ public final class Input {
             if (eat) return true;
         }
         if (!menuOpen) {
-            if (Party.typing && MainMenu.title) { if (cp >= 32 && cp <= 0xFFFF && !Character.isSurrogate((char) cp)) Party.chars(String.valueOf((char) cp)); return true; }
+            if ((Party.typing || Party.form()) && MainMenu.title) { if (cp >= 32 && cp <= 0xFFFF && !Character.isSurrogate((char) cp)) Party.chars(String.valueOf((char) cp)); return true; }
             return false;
         }
         // any language: printable BMP characters (no controls, no surrogate halves: the glyph atlas is per char)
