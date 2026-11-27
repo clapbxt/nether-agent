@@ -4,6 +4,12 @@ What changed in each client release, newest first. Add a line under **Unreleased
 change: what a player notices, not how it was done. At release, move the lines under the new version.
 
 ## Unreleased
+- Faster frames on 1.21.5 and newer (OpenGL): Performance merges the game's per-buffer GPU fences into one per frame
+  and drops needless framebuffer switches after each clear. Measured on 1.21.11 with Sodium, Lithium,
+  ImmediatelyFast, BadOptimizations and EntityCulling: about 27% more FPS and 13% better 1% lows than before; plain
+  1.21.11 and 26.1.2 gain too. Both are Performance settings (One GPU fence per frame, Fewer framebuffer switches).
+- Nether's HUD costs less each frame: when it is reused between rebuilds it is drawn from a buffer kept on the GPU
+  instead of being uploaded again.
 - Four new title panoramas from real cube captures: Sakura (sharper, replaces the old one), Lookout, Meadow and Dusk.
 - World lyrics are drawn as ready-made word images: far smoother frame rate, no shimmer while words move, and every
   text style keeps its look at any size.

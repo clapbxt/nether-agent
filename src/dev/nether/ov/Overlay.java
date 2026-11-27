@@ -56,6 +56,7 @@ public final class Overlay {
         if ("1".equals(System.getProperty("nether.bare"))) { Hook.target = Overlay::bareFrame; return; } // benchmarks: vanilla + the dev world loader (no input hooks installed)
         GlBackend.cur = (GlBackend) Class.forName(legacy ? "dev.nether.ov.platform.GlCompat" : "dev.nether.ov.platform.GlCore").newInstance();
         Plat.cur.install();
+        if (!legacy) Hook.fences = (Hook.Fences) Class.forName("dev.nether.ov.platform.GlFences").newInstance();
         Hook.target = Overlay::frame;
         Hook.name = Capes::name;
         Hook.chat = Capes::chat;

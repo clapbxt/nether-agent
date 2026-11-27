@@ -523,18 +523,51 @@ public final class Agent {
     /**
      * GlStateManager.clearGlErrors()V starts with "if (Hook.glErrClear()) return;" and _getError()I with
      * "if (Hook.glErrRead()) return 0;": vanilla's allocate-then-check pairs no longer stall on glGetError (Performance).
+     * 1.21.5+: _glFenceSync / _glClientWaitSync / _glDeleteSync go to Hook's shared fences first (Performance, see Hook.fenceSync).
      */
     private static byte[] glErrors(byte[] bytes) {
         try {
             ClassReader cr = new ClassReader(bytes);
             ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS);
-            final int[] n = {0};
+            final int[] n = {0, 0};
             cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {
                 @Override
                 public MethodVisitor visitMethod(int access, String mname, String desc, String sig, String[] ex) {
                     MethodVisitor mv = super.visitMethod(access, mname, desc, sig, ex);
                     final boolean clear = "clearGlErrors".equals(mname) && "()V".equals(desc), read = "_getError".equals(mname) && "()I".equals(desc);
-                    if ((access & Opcodes.ACC_STATIC) == 0 || !clear && !read) return mv;
+                    final boolean fsync = "_glFenceSync".equals(mname) && "(II)J".equals(desc), fwait = "_glClientWaitSync".equals(mname) && "(JIJ)I".equals(desc),
+                        fdel = "_glDeleteSync".equals(mname) && "(J)V".equals(desc);
+                    if ((access & Opcodes.ACC_STATIC) == 0) return mv;
+                    if (fsync || fwait || fdel) {
+                        n[1]++;
+                        return new MethodVisitor(Opcodes.ASM9, mv) {
+                            @Override
+                            public void visitCode() {
+                                super.visitCode();
+                                dev.nether.shaded.asm.Label go = new dev.nether.shaded.asm.Label();
+                                if (fsync) super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOK, "fenceOn", "()Z", false);
+                                else { super.visitVarInsn(Opcodes.LLOAD, 0); super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOK, "fenceOwned", "(J)Z", false); }
+                                super.visitJumpInsn(Opcodes.IFEQ, go);
+                                if (fsync) {
+                                    super.visitVarInsn(Opcodes.ILOAD, 0); super.visitVarInsn(Opcodes.ILOAD, 1);
+                                    super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOK, "fenceSync", "(II)J", false);
+                                    super.visitInsn(Opcodes.LRETURN);
+                                } else if (fwait) {
+                                    super.visitVarInsn(Opcodes.LLOAD, 0); super.visitVarInsn(Opcodes.ILOAD, 2); super.visitVarInsn(Opcodes.LLOAD, 3);
+                                    super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOK, "fenceWait", "(JIJ)I", false);
+                                    super.visitInsn(Opcodes.IRETURN);
+                                } else {
+                                    super.visitVarInsn(Opcodes.LLOAD, 0);
+                                    super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOK, "fenceDelete", "(J)V", false);
+                                    super.visitInsn(Opcodes.RETURN);
+                                }
+                                super.visitLabel(go);
+                                super.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                                super.visitInsn(Opcodes.NOP);
+                            }
+                        };
+                    }
+                    if (!clear && !read) return mv;
                     n[0]++;
                     return new MethodVisitor(Opcodes.ASM9, mv) {
                         @Override
@@ -551,11 +584,86 @@ public final class Agent {
                     };
                 }
             }, 0);
-            if (n[0] < 2) return null; // older GlStateManager without the pair: leave it alone
-            System.out.println("[nether-agent] hooked GPU error checks");
+            if (n[0] < 2 && n[1] < 3) return null; // older GlStateManager without the pair or the fence calls: leave it alone
+            if (n[0] < 2) { System.out.println("[nether-agent] GPU error checks hook needs both methods"); return null; }
+            if (n[1] > 0 && n[1] < 3) { System.out.println("[nether-agent] fence hook needs all three methods"); return null; }
+            System.out.println("[nether-agent] hooked GPU error checks" + (n[1] == 3 ? " and fences" : ""));
             return cw.toByteArray();
         } catch (Throwable t) {
             System.out.println("[nether-agent] GPU error checks hook failed: " + t);
+            return null;
+        }
+    }
+
+    /**
+     * The GL command encoder (1.21.5+: the class implementing CommandEncoder / CommandEncoderBackend). Vanilla binds
+     * framebuffer 0 at the end of every clear and render pass, and the next operation binds its own target again: ~20
+     * framebuffer switches a frame, each one driver work (13 % of the render thread on 1.21.11 + Sodium + ImmediatelyFast,
+     * JFR 2026-11-27). Every "bind 0" there (except after copyTextureToBuffer's read) goes to Hook.fbZero, which drops it
+     * while Performance "Fewer framebuffer switches" is on; GlStateManager's own bind cache then skips the re-bind too.
+     * presentTexture binds 0 first, so the window's framebuffer is current at the swap as before (ImmediatelyFast does
+     * the same, for render passes only).
+     */
+    private static final byte[] ENCODER = "com/mojang/blaze3d/systems/CommandEncoder".getBytes(StandardCharsets.US_ASCII);
+
+    /** The class file's bytes contain s (a cheap test before parsing one of vanilla's thousands of obfuscated classes). */
+    private static boolean has(byte[] b, byte[] s) {
+        outer:
+        for (int i = 0, n = b.length - s.length; i <= n; i++) {
+            if (b[i] != s[0]) continue;
+            for (int j = 1; j < s.length; j++) if (b[i + j] != s[j]) continue outer;
+            return true;
+        }
+        return false;
+    }
+
+    private static byte[] fbUnbinds(byte[] bytes) {
+        try {
+            ClassReader cr = new ClassReader(bytes);
+            boolean enc = false;
+            for (String i : cr.getInterfaces()) enc |= "com/mojang/blaze3d/systems/CommandEncoder".equals(i) || "com/mojang/blaze3d/systems/CommandEncoderBackend".equals(i);
+            if (!enc) return null;
+            ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS);
+            final int[] n = {0};
+            cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {
+                @Override
+                public MethodVisitor visitMethod(int access, String mname, String desc, String sig, String[] ex) {
+                    MethodVisitor mv = super.visitMethod(access, mname, desc, sig, ex);
+                    if ((access & Opcodes.ACC_STATIC) != 0 || "copyTextureToBuffer".equals(mname)) return mv;
+                    final boolean present = "presentTexture".equals(mname);
+                    return new MethodVisitor(Opcodes.ASM9, mv) {
+                        boolean zero;
+                        @Override public void visitCode() {
+                            super.visitCode();
+                            if (!present) return;
+                            super.visitLdcInsn(0x8D40); // GL_FRAMEBUFFER
+                            super.visitInsn(Opcodes.ICONST_0);
+                            super.visitMethodInsn(Opcodes.INVOKESTATIC, "com/mojang/blaze3d/opengl/GlStateManager", "_glBindFramebuffer", "(II)V", false);
+                        }
+                        @Override public void visitInsn(int op) { super.visitInsn(op); zero = op == Opcodes.ICONST_0; }
+                        @Override public void visitMethodInsn(int op, String o, String nm, String d, boolean itf) {
+                            if (zero && op == Opcodes.INVOKESTATIC && o.endsWith("/GlStateManager") && "_glBindFramebuffer".equals(nm) && "(II)V".equals(d)) {
+                                n[0]++;
+                                super.visitLdcInsn(Type.getObjectType(o));
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, HOOK, "fbZero", "(IILjava/lang/Class;)V", false);
+                            } else super.visitMethodInsn(op, o, nm, d, itf);
+                            zero = false;
+                        }
+                        @Override public void visitVarInsn(int op, int v) { zero = false; super.visitVarInsn(op, v); }
+                        @Override public void visitIntInsn(int op, int v) { zero = false; super.visitIntInsn(op, v); }
+                        @Override public void visitFieldInsn(int op, String o, String nm, String d) { zero = false; super.visitFieldInsn(op, o, nm, d); }
+                        @Override public void visitLdcInsn(Object v) { zero = false; super.visitLdcInsn(v); }
+                        @Override public void visitJumpInsn(int op, dev.nether.shaded.asm.Label l) { zero = false; super.visitJumpInsn(op, l); }
+                        @Override public void visitLabel(dev.nether.shaded.asm.Label l) { zero = false; super.visitLabel(l); }
+                        @Override public void visitTypeInsn(int op, String t) { zero = false; super.visitTypeInsn(op, t); }
+                    };
+                }
+            }, 0);
+            if (n[0] == 0) return null;
+            System.out.println("[nether-agent] hooked framebuffer unbinds (" + n[0] + ")");
+            return cw.toByteArray();
+        } catch (Throwable t) {
+            System.out.println("[nether-agent] framebuffer unbind hook failed: " + t);
             return null;
         }
     }
@@ -587,6 +695,10 @@ public final class Agent {
                 return b == bytes ? null : b;
             }
             if (!BARE && ("com/mojang/blaze3d/opengl/GlStateManager".equals(name) || "com/mojang/blaze3d/platform/GlStateManager".equals(name))) return glErrors(bytes);
+            if (!BARE && ("com/mojang/blaze3d/opengl/GlCommandEncoder".equals(name) || "net/minecraft/class_10860".equals(name) || name.indexOf('/') < 0 && name.length() <= 4 && has(bytes, ENCODER))) {
+                byte[] r = fbUnbinds(bytes);
+                if (r != null) return r;
+            }
             if (!name.startsWith("org/lwjgl/")) return null;
             if (!BARE && name.startsWith("org/lwjgl/opengl/") && GL_CLASSES.contains(name.substring(17))) return glShadow(name, bytes);
             final boolean glfw = "org/lwjgl/glfw/GLFW".equals(name);

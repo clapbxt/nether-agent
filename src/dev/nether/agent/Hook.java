@@ -403,7 +403,15 @@ public final class Hook {
     public static void glUseProgram(int p) { if (onGl()) gs[G_PROG] = p; }
     public static void glUseProgramObjectARB(int p) { glUseProgram(p); }
     public static void glBindVertexArray(int v) { if (onGl()) gs[G_VAO] = v; }
-    public static void glBindFramebuffer(int target, int id) { if ((target == 0x8D40 || target == 0x8CA9) && onGl()) gs[G_DFB] = id; }
+    public static void glBindFramebuffer(int target, int id) {
+        if ((target == 0x8D40 || target == 0x8CA9) && onGl()) {
+            if (BENCH) fbBinds++;
+            gs[G_DFB] = id;
+        }
+    }
+    /** dev (bench): draw-framebuffer binds reaching LWJGL (GL30 + GL30C each count: about twice the driver calls) */
+    private static int fbBinds;
+
     public static void glBindFramebufferEXT(int target, int id) { glBindFramebuffer(target, id); }
     // deleting a bound object unbinds it
     public static void glDeleteTextures(int id) { if (id != 0 && onGl()) for (int i = 0; i < 32; i++) if (gtex[i] == id) gtex[i] = 0; }
@@ -431,6 +439,103 @@ public final class Hook {
         if (!errPending) return false;
         errPending = false;
         return true;
+    }
+
+    // ---------------------------------------------------------------- one GPU fence per frame (Performance module)
+
+    /**
+     * The real GL sync calls, made by the overlay (it can see LWJGL; this class can't). Render thread only.
+     * create() = glFenceSync(SYNC_GPU_COMMANDS_COMPLETE, 0), the others as glClientWaitSync / glDeleteSync.
+     */
+    public interface Fences {
+        long create();
+        int await(long sync, int flags, long timeout);
+        void delete(long sync);
+    }
+
+    /** Set by the overlay on LWJGL3 (GL backends only). */
+    public static volatile Fences fences;
+    /** Performance "One GPU fence per frame": new fences become shared ones. Set by ov.Performance. */
+    public static volatile boolean fenceMerge;
+
+    /**
+     * Vanilla 1.21.5+ (GlStateManager._glFenceSync, used only by GlFence) puts a fence after every ring-buffer rotation:
+     * five or six per frame, each a driver call that costs as much as a draw. A fence only tells the CPU "the GPU got
+     * past this point", so a fence placed later in the stream is always a safe stand-in for an earlier one (it signals
+     * after it). With fenceMerge on, _glFenceSync hands out a virtual handle; the frame's pending virtual fences all
+     * share one real fence made just before the swap (or at once, when the game waits on one earlier). A wait on a
+     * fence whose real fence already reported done returns at once without asking the driver.
+     */
+    private static final long FENCE_TAG = 0x8E7E000000000000L, FENCE_MASK = 0xFFFF000000000000L;
+    private static final int ALREADY_SIGNALED = 0x911A, CONDITION_SATISFIED = 0x911C, SYNC_FLUSH = 1;
+    private static final class Real { long sync; int refs; boolean done; }
+    private static final java.util.HashMap<Long, Real> vfence = new java.util.HashMap<>();
+    private static final java.util.ArrayList<Long> vpending = new java.util.ArrayList<>();
+    private static long vseq;
+
+    /** Start of GlStateManager._glFenceSync: true = return {@link #fenceSync} instead. */
+    public static boolean fenceOn() { return fenceMerge && fences != null && !featOffFor("fence"); }
+
+    public static long fenceSync(int condition, int flags) {
+        long v = FENCE_TAG | (++vseq & ~FENCE_MASK);
+        vfence.put(v, null);
+        vpending.add(v);
+        if (vpending.size() >= 64) fenceFlush(); // a frame that never swaps (loading) still gets real fences
+        return v;
+    }
+
+    /** Start of _glClientWaitSync / _glDeleteSync: true = a virtual handle, answered by {@link #fenceWait} / {@link #fenceDelete}. */
+    public static boolean fenceOwned(long sync) { return (sync & FENCE_MASK) == FENCE_TAG; }
+
+    public static int fenceWait(long v, int flags, long timeout) {
+        if (!vfence.containsKey(v)) return ALREADY_SIGNALED; // already deleted: nothing of the game's waits on it
+        Real r = vfence.get(v);
+        if (r == null) { fenceFlush(); r = vfence.get(v); flags |= SYNC_FLUSH; } // waited on in its own frame: real fence now, flushed
+        if (r == null) return ALREADY_SIGNALED;
+        if (r.done) return ALREADY_SIGNALED;
+        int res = fences.await(r.sync, flags, timeout);
+        if (res == ALREADY_SIGNALED || res == CONDITION_SATISFIED) r.done = true;
+        return res;
+    }
+
+    public static void fenceDelete(long v) {
+        if (!vfence.containsKey(v)) return;
+        Real r = vfence.remove(v);
+        if (r == null) { vpending.remove(Long.valueOf(v)); return; }
+        if (--r.refs == 0) fences.delete(r.sync);
+    }
+
+    /** One real fence for every pending virtual one (render thread, GL context current). */
+    private static void fenceFlush() {
+        if (vpending.isEmpty()) return;
+        Real r = new Real();
+        r.sync = fences.create();
+        r.refs = vpending.size();
+        for (Long v : vpending) vfence.put(v, r);
+        vpending.clear();
+    }
+
+    private static boolean featOffFor(String f) { return featOff && f.equals(BENCH_FEAT); }
+
+    // ---------------------------------------------------------------- fewer framebuffer switches (Performance module)
+
+    /** Performance "Fewer framebuffer switches": the command encoder's "bind framebuffer 0" after a clear / pass is dropped. */
+    public static volatile boolean fbKeep;
+    private static java.lang.invoke.MethodHandle fbBind;
+
+    /** Replaces GlStateManager._glBindFramebuffer(target, 0) inside the command encoder (see Agent.fbUnbinds). */
+    public static void fbZero(int target, int id, Class<?> gsm) {
+        if (fbKeep && !featOffFor("fb")) return;
+        try {
+            java.lang.invoke.MethodHandle h = fbBind;
+            if (h == null) fbBind = h = java.lang.invoke.MethodHandles.publicLookup().findStatic(gsm, "_glBindFramebuffer",
+                java.lang.invoke.MethodType.methodType(void.class, int.class, int.class));
+            h.invokeExact(target, id);
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new IllegalStateException(t);
+        }
     }
 
     // ---------------------------------------------------------------- entity occlusion culling (Performance module)
@@ -520,6 +625,8 @@ public final class Hook {
         if (BENCH_CULL) cullOff = !cullOff;
         if (BENCH_FEAT != null) { ab += " " + BENCH_FEAT + (featOff ? "off" : "on"); featOff = !featOff; }
         if (beCullHooked) ab += String.format(java.util.Locale.ROOT, " be %.0f/%.0f", beHidden / (double) benchN, beAsked / (double) benchN);
+        if (fbBinds > 0) ab += String.format(java.util.Locale.ROOT, " fb %.1f", fbBinds / (double) benchN);
+        fbBinds = 0;
         if (waitN > 0) ab += String.format(java.util.Locale.ROOT, " oswait late avg %.0fus max %.0fus", lateSum / 1e3 / waitN, lateMax / 1e3);
         waitN = 0; lateSum = lateMax = 0;
         cullAsked = cullHidden = beAsked = beHidden = 0;
@@ -561,6 +668,7 @@ public final class Hook {
 
     public static void frame(long window) {
         frames++;
+        if (!vpending.isEmpty()) try { fenceFlush(); } catch (Throwable e) { fenceMerge = false; System.out.println("[nether-agent] fence merge off: " + e); }
         if (glThread == null) glThread = Thread.currentThread();
         if (BENCH) bench();
         LongConsumer t = target;

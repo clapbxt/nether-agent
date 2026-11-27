@@ -8,6 +8,11 @@ import dev.nether.ov.framework.Setting;
 /**
  * Performance (2026-11-20, vault: projects/Performance): Nether's own fixes to the game's frame loop, on by default.
  * Each one is a setting so a player can hand the game its vanilla behaviour back if something looks off.
+ * - One GPU fence per frame (1.21.5+, OpenGL): vanilla fences every ring-buffer rotation (5-6 a frame; 11 % of the
+ *   render thread on 1.21.11 + Sodium + ImmediatelyFast, JFR 2026-11-27); they share one real fence per frame instead,
+ *   see Hook.fenceSync.
+ * - Fewer framebuffer switches (1.21.5+, OpenGL): the command encoder's bind-0 after each clear / pass is dropped,
+ *   see Agent.fbUnbinds.
  * - GPU error checks (1.21.5+): vanilla brackets every buffer and texture allocation (each chunk section upload) with
  *   GlStateManager.clearGlErrors() + _getError() to spot GL_OUT_OF_MEMORY. Every glGetError makes the CPU wait until
  *   the driver has caught up with the GPU work queued so far. With this on, exactly those pairs skip the driver
@@ -25,6 +30,8 @@ public final class Performance extends Module {
         super("performance", "Performance", "Utility", "Nether's own fixes that make the game's frame loop faster. On by default.", false, true, 0, 0);
         add(Setting.header("Rendering"));
         add(Setting.bool("gpuChecks", "Skip GPU error checks", true).hint("The game stops to ask the graphics driver for errors around every chunk upload, which stalls each frame. Turn off to keep the game's own checks."));
+        add(Setting.bool("fences", "One GPU fence per frame", true).hint("The game marks its place in the GPU's work queue several times a frame, and each mark costs a trip to the graphics driver. With this on, one mark per frame does the same job. Turn off to keep the game's own marks."));
+        add(Setting.bool("fbKeep", "Fewer framebuffer switches", true).hint("After clearing a layer of the picture the game switches back to the window and then straight on to the next layer. With this on it goes straight to the next layer. Turn off if the picture ever looks wrong."));
         add(Setting.bool("cull", "Skip hidden entities", true).hint("Mobs and items fully behind solid blocks are not drawn. Players, glowing and named mobs always are. Turn off if something pops in late."));
         add(Setting.bool("beCull", "Skip hidden block entities", true).hint("Chests, signs, banners, heads and other block entities fully behind solid blocks are not drawn. Beacons always are. Turn off if one pops in late."));
         add(Setting.header("Frame pacing"));
@@ -39,6 +46,8 @@ public final class Performance extends Module {
 
     @Override public void tick() {
         Hook.glErrSkip = enabled() && bool("gpuChecks");
+        Hook.fenceMerge = enabled() && bool("fences");
+        Hook.fbKeep = enabled() && bool("fbKeep");
         Hook.preciseWait = enabled() && bool("preciseCap") && !benchOff("cap");
         Culling.tick(enabled() && bool("cull") && !benchOff("cull"), enabled() && bool("beCull") && !benchOff("becull"));
     }
