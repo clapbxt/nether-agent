@@ -212,6 +212,9 @@ public final class Input {
         return Modules.onScroll(y);
     }
 
+    /** One of our own text fields outside the Nether menu has focus (title screen chat / server form): typed text is ours. */
+    public static volatile boolean wantText;
+
     public static boolean onChar(int cp) {
         if (dead) return false;
         if (eatCharAt != 0) {

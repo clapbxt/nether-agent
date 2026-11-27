@@ -140,6 +140,7 @@ public final class MainMenu {
         pressed = false;
         nb = 0;
         modal = null;
+        Input.wantText = false;
         if (!MODULE.available()) return;
         look();
         if (cTitle == null) return;
@@ -153,6 +154,7 @@ public final class MainMenu {
         try {
             if (isTitle) {
                 title = true;
+                Input.wantText = Party.typing || Party.form();
                 PartyPick.title();
                 if (!was) shownAt = System.nanoTime();
                 strip(s);

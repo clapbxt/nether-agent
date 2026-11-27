@@ -46,7 +46,7 @@ public final class PlatSdl extends Plat implements Hook.Sdl {
 
     /** timestamp of the key events we push ourselves (they skip our filter) */
     private static final long SYNTH = 0x4E45544845524BL;
-    private boolean closing, internal, textWas;
+    private boolean closing, internal, textWas, lobbyText;
     private IntBuffer a, b;
     private ByteBuffer keys;
     private long synth;
@@ -104,6 +104,23 @@ public final class PlatSdl extends Plat implements Hook.Sdl {
         if (!textWas) SDLKeyboard.SDL_StartTextInput(w); // search box typing
     }
 
+    /**
+     * SDL3 only sends text events while text input is on, and the game turns it on only for its own text fields. Our
+     * title screen's fields (party chat, Add / Edit Server) have no game field behind them, so turn it on while one is
+     * focused and off again after (unless the game had it on).
+     */
+    @Override public void tick() {
+        long w = Input.window;
+        if (w == 0) return;
+        boolean want = Input.wantText && !Input.menuOpen;
+        if (want && !lobbyText) {
+            if (!SDLKeyboard.SDL_TextInputActive(w)) { SDLKeyboard.SDL_StartTextInput(w); lobbyText = true; }
+        } else if (!want && lobbyText) {
+            lobbyText = false;
+            if (!Input.menuOpen) SDLKeyboard.SDL_StopTextInput(w);
+        }
+    }
+
     @Override public void closed() {
         long w = Input.window;
         if (!textWas) SDLKeyboard.SDL_StopTextInput(w);
@@ -146,7 +163,7 @@ public final class PlatSdl extends Plat implements Hook.Sdl {
             }
             case SDLEvents.SDL_EVENT_TEXT_INPUT: {
                 if (Input.devOnly) return true;
-                if (!Input.menuOpen) return false;
+                if (!Input.menuOpen && !Input.wantText) return false;
                 String s = memUTF8Safe(memGetAddress(p + SDL_TextInputEvent.TEXT));
                 if (s != null) for (int i = 0; i < s.length(); i++) Input.onChar(s.charAt(i));
                 return true;
