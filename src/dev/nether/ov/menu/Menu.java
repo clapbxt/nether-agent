@@ -412,7 +412,7 @@ public final class Menu {
     }
 
     private static void typedSearch(String t) {
-        if (hudEdit || capture != null || t.isEmpty() || (!hub && tab >= T_WARDROBE)) return;
+        if (hudEdit || capture != null || t.isEmpty() || (!hub && tab >= T_WARDROBE && !(tab == T_SETTINGS && searchFocus))) return;
         if (!hub && page != null && SettingsPage.takesTyping(page)) return; // a module page's search takes typing only once clicked (or Ctrl+F)
         String q = (search + t.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')).replaceFirst("^\\s+", "");
         q = q.substring(0, Math.min(24, q.length()));
@@ -872,16 +872,23 @@ public final class Menu {
 
     /** Leave the hub for the screen of tab t. */
     private static void go(int t) {
+        // Mods <-> Settings with the screen already up (the lobby's gear, the top bar): one screen, so only the
+        // content swaps; no swipe, fade or pill reset
+        boolean same = !hub && Input.menuOpen && tS > 0.05f && mainScreen(tab) && mainScreen(t);
         hub = false;
         commitEdit();
         ColorPicker.close();
         page = null;
-        if (t != tab) setTab(t);
+        if (t != tab) { if (t == T_SETTINGS) { tab = t; scroll = scrollT = 0; capture = null; } else setTab(t); }
         fCur = -1;
+        if (same) return;
         tS = gridT = 0;
         pillX = -1;
-        tDir = t == T_SETTINGS ? -1 : t == T_WARDROBE || t == T_FRIENDS ? 1 : 0;
+        tDir = t == T_WARDROBE || t == T_FRIENDS ? 1 : 0;
     }
+
+    /** The Mods / Settings screen (module categories, HUD widgets or the Settings chip). */
+    private static boolean mainScreen(int t) { return t < T_WARDROBE || t == T_SETTINGS; }
 
     /** Module in this sidebar category (0 favourites, 1 all, 2 visual, 3 utility; 4 HUD = the widgets, which no other tab lists). */
     private static boolean inTab(Module m, int t) {
@@ -918,7 +925,7 @@ public final class Menu {
         return n;
     }
 
-    // ---------------------------------------------------------------- screens: Mods, Settings and Wardrobe are separate GUIs
+    // ---------------------------------------------------------------- screens: Mods + Settings (one screen), Wardrobe, Friends
 
     private static float sx, sy, sw, sh; // the open screen's panel
 
@@ -930,12 +937,29 @@ public final class Menu {
         if (tip != null) tooltip(sx);
     }
 
-    /** Mods: logo + MODS, search, HUD editor; category chips; the card grid. */
+    /**
+     * Mods and Settings are one screen (2026-11-27): the same panel, header and chip row, where Settings is the last
+     * chip after the module categories. Switching chips only swaps the content under the row; the panel never moves,
+     * fades or swipes in again, so it never looks like a new GUI opening.
+     */
     private static void modsScreen(float wheel, float e) {
+        mainHeader(e);
+        Gfx.text(Gfx.UI, 12, mainHx, sy + TOP / 2f, Th.mut, onCount(tab) + " of " + count(tab) + (tab == T_HUD ? " on screen" : " on"));
+        catRow(sx + 16, sy + TOP + 10);
+        float top = sy + TOP + 48;
+        list(sx, top, sw, sh - (top - sy) - FOOT, wheel);
+        footer(page != null ? (SettingsPage.takesTyping(page) ? "Click search or Ctrl F to search settings  ·  Arrows move  ·  Left / Right adjust  ·  Esc back to modules" : "Esc back to modules")
+            : tab == T_HUD ? "Arrows move  \u00b7  Enter settings  \u00b7  Ctrl E edits the HUD  \u00b7  Esc back" : "Arrows move  \u00b7  Space toggle  \u00b7  Enter settings  \u00b7  Esc back");
+    }
+
+    /** x after the title in the shared header (where the Mods screen writes its "n of m on" count) */
+    private static float mainHx;
+
+    /** The shared Mods / Settings panel and header: logo + NETHER, the HUD editor button and the module search. */
+    private static void mainHeader(float e) {
         float pw = Math.max(760, Math.min(1180, W * 0.86f)), ph = pageH(Math.max(500, Math.min(640, H * 0.86f)));
-        float hx = header(pw, ph, e, null, "NETHER"), cy = sy + TOP / 2f;
-        hx = mainTabs(hx, cy);
-        Gfx.text(Gfx.UI, 12, hx, cy, Th.mut, onCount(tab) + " of " + count(tab) + (tab == T_HUD ? " on screen" : " on"));
+        mainHx = header(pw, ph, e, null, "NETHER");
+        float cy = sy + TOP / 2f;
         float ex = sx + sw - 16 - 28 - 8 - 28;
         boolean eh = in(ex, cy - 14, 28, 28);
         float et = an("hed", eh);
@@ -944,82 +968,74 @@ public final class Menu {
         if (eh) tip = "Edit HUD layout  (Ctrl E)";
         if (hit(ex, cy - 14, 28, 28)) openHudEditor();
         searchBox(ex - 12 - 250, cy);
-        float x = sx + 16, y = sy + TOP + 10, a0 = Gfx.alpha;
-        float[] cxs = new float[T_WARDROBE], cws = new float[T_WARDROBE];
-        for (int i = 0, xx = 0; i < T_WARDROBE; i++) {
-            if (i == T_HUD) xx += 13; // a hairline between the module categories and the HUD widgets
-            cws[i] = 37 + Gfx.width(Gfx.UI, 12, TABS[i]) + 8 + Gfx.width(Gfx.UI, 11, String.valueOf(count(i))) + 14;
+    }
+
+    /** Chip slot of the Settings chip in {@link #catRow} (after the module categories and HUD). */
+    private static final int SET_SLOT = T_WARDROBE;
+
+    /**
+     * The one chip row of the Mods / Settings screen: Favorites, All, Visual, Utility | HUD | Settings. One accent pill
+     * slides between them (into Settings too), so moving between modules and settings reads as one screen.
+     */
+    private static void catRow(float x, float y) {
+        float a0 = Gfx.alpha;
+        int n = SET_SLOT + 1, cur = tab == T_SETTINGS ? SET_SLOT : tab;
+        float[] cxs = new float[n], cws = new float[n];
+        for (int i = 0, xx = 0; i < n; i++) {
+            if (i == T_HUD || i == SET_SLOT) xx += 13; // hairlines: categories | HUD widgets | settings
+            String lbl = i == SET_SLOT ? "Settings" : TABS[i];
+            cws[i] = 37 + Gfx.width(Gfx.UI, 12, lbl) + (i == SET_SLOT ? 14 : 8 + Gfx.width(Gfx.UI, 11, String.valueOf(count(i))) + 14);
             cxs[i] = xx;
             xx += (int) Math.ceil(cws[i] + 6);
         }
         Gfx.alpha = a0 * k(tS, 0.05f + T_HUD * 0.03f, 0.24f);
         Gfx.rect(x + cxs[T_HUD] - 10, y + 6, 1, 16, 0, Th.ln2);
-        for (int i = 0; i < T_WARDROBE; i++) {
-            if (tab != i) {
-                Gfx.alpha = a0 * k(tS, 0.05f + i * 0.03f, 0.24f);
-                float h = an("chh" + i, in(x + cxs[i], y, cws[i], 28));
-                // Feather category pills: filled quiet plates, no outline; the open one is the accent. HUD: a blue plate and outline
-                if (i == T_HUD) {
-                    Gfx.rect(x + cxs[i], y, cws[i], 28, 6, Gfx.a(hudTint(), 0.14f + 0.10f * h));
-                    Gfx.ring(x + cxs[i], y, cws[i], 28, 6, 1, Gfx.a(hudTint(), 0.45f + 0.3f * h));
-                } else Gfx.rect(x + cxs[i], y, cws[i], 28, 6, Gfx.mix(Th.s2, Th.s3, h));
-            }
-        }
-        Gfx.alpha = a0;
-        if (tab < T_WARDROBE) {
-            if (pillX < 0 || Config.calm()) { pillX = cxs[tab]; pillW = cws[tab]; }
-            float f0 = Math.min(1, Gfx.dt * 14);
-            pillX += (cxs[tab] - pillX) * f0;
-            pillW += (cws[tab] - pillW) * f0;
-            Gfx.rect(x + pillX, y, pillW, 28, 6, Gfx.mix(Th.ac, hudTint(), an("pillhud", tab == T_HUD)));
-        }
-        for (int i = 0; i < T_WARDROBE; i++) {
-            String c = String.valueOf(count(i));
-            float w = cws[i];
-            x = sx + 16 + cxs[i];
-            boolean sel = tab == i;
+        Gfx.rect(x + cxs[SET_SLOT] - 10, y + 6, 1, 16, 0, Th.ln2);
+        for (int i = 0; i < n; i++) {
+            if (cur == i) continue;
             Gfx.alpha = a0 * k(tS, 0.05f + i * 0.03f, 0.24f);
-            float t = an("ch" + i, sel), h = an("chh" + i, in(x, y, w, 28));
-            int col = Gfx.mix(Gfx.mix(i == T_HUD ? Gfx.mix(Th.dim, hudTint(), 0.75f) : Th.dim, Th.tx, h), 0xFFFFFFFF, t);
-            ModIcons.draw(TAB_ICON[i], x + 14, y + 6.5f, 15, col);
-            float lw = Gfx.text(Gfx.UI, 12, x + 37, y + 14, col, TABS[i]);
-            Gfx.text(Gfx.UI, 11, x + 37 + lw + 8, y + 14, Gfx.mix(Th.mut, 0xC0FFFFFF, t), c);
-            if (hit(x, y, w, 28) && i != tab) { commitEdit(); ColorPicker.close(); page = null; setTab(i); searchFocus = false; }
-            if (i == T_HUD && in(x, y, w, 28) && tab != i) tip = "HUD widgets: click one for its settings; add, remove and place them in the HUD editor";
+            float h = an("chh" + i, in(x + cxs[i], y, cws[i], 28));
+            // Feather category pills: filled quiet plates, no outline; the open one is the accent. HUD: a blue plate and outline
+            if (i == T_HUD) {
+                Gfx.rect(x + cxs[i], y, cws[i], 28, 6, Gfx.a(hudTint(), 0.14f + 0.10f * h));
+                Gfx.ring(x + cxs[i], y, cws[i], 28, 6, 1, Gfx.a(hudTint(), 0.45f + 0.3f * h));
+            } else Gfx.rect(x + cxs[i], y, cws[i], 28, 6, Gfx.mix(Th.s2, Th.s3, h));
         }
         Gfx.alpha = a0;
-        float top = sy + TOP + 48;
-        list(sx, top, sw, sh - (top - sy) - FOOT, wheel);
-        footer(page != null ? (SettingsPage.takesTyping(page) ? "Click search or Ctrl F to search settings  ·  Arrows move  ·  Left / Right adjust  ·  Esc back to modules" : "Esc back to modules")
-            : tab == T_HUD ? "Arrows move  \u00b7  Enter settings  \u00b7  Ctrl E edits the HUD  \u00b7  Esc back" : "Arrows move  \u00b7  Space toggle  \u00b7  Enter settings  \u00b7  Esc back");
-    }
-
-    /** The MODS | SETTINGS tabs beside the title, shared by both screens (like Lunar's top bar). Returns the x after them. */
-    private static float mainTabs(float x, float cy) {
-        String[] names = {"MODS", "SETTINGS"};
-        for (int i = 0; i < 2; i++) {
-            float w = Gfx.width(Gfx.SEMI, 12, names[i], 1.2f) + 30;
-            boolean sel = (i == 1) == (tab == T_SETTINGS), hv = in(x, cy - 14, w, 28);
-            float t = an("mt" + i, sel);
-            Gfx.rect(x, cy - 14, w, 28, 6, Gfx.mix(Gfx.mix(Th.s2, Th.s3, hv ? 1 : 0), Th.ac, t));
-            Gfx.textC(Gfx.SEMI, 12, x + w / 2, cy, Gfx.mix(Gfx.mix(Th.dim, Th.tx, hv ? 1 : 0), 0xFFFFFFFF, t), names[i], 1.2f);
-            if (!sel && hit(x, cy - 14, w, 28)) {
-                commitEdit(); ColorPicker.close(); page = null; searchFocus = false;
-                setTab(i == 1 ? T_SETTINGS : lastCat);
-                tS = gridT = 0; tDir = 0; pillX = -1;
+        if (pillX < 0 || Config.calm()) { pillX = cxs[cur]; pillW = cws[cur]; }
+        float f0 = Math.min(1, Gfx.dt * 14);
+        pillX += (cxs[cur] - pillX) * f0;
+        pillW += (cws[cur] - pillW) * f0;
+        Gfx.rect(x + pillX, y, pillW, 28, 6, Gfx.mix(Th.ac, hudTint(), an("pillhud", tab == T_HUD)));
+        for (int i = 0; i < n; i++) {
+            float w = cws[i], cx = x + cxs[i];
+            boolean sel = cur == i;
+            Gfx.alpha = a0 * k(tS, 0.05f + i * 0.03f, 0.24f);
+            float t = an("ch" + i, sel), h = an("chh" + i, in(cx, y, w, 28));
+            int col = Gfx.mix(Gfx.mix(i == T_HUD ? Gfx.mix(Th.dim, hudTint(), 0.75f) : Th.dim, Th.tx, h), 0xFFFFFFFF, t);
+            if (i == SET_SLOT) {
+                ModIcons.draw(TAB_ICON[T_SETTINGS], cx + 14, y + 6.5f, 15, col);
+                Gfx.text(Gfx.UI, 12, cx + 37, y + 14, col, "Settings");
+                if (hit(cx, y, w, 28) && !sel) { commitEdit(); ColorPicker.close(); page = null; searchFocus = false; search = ""; tab = T_SETTINGS; scroll = scrollT = 0; fCur = -1; capture = null; }
+                continue;
             }
-            x += w + 6;
+            String c = String.valueOf(count(i));
+            ModIcons.draw(TAB_ICON[i], cx + 14, y + 6.5f, 15, col);
+            float lw = Gfx.text(Gfx.UI, 12, cx + 37, y + 14, col, TABS[i]);
+            Gfx.text(Gfx.UI, 11, cx + 37 + lw + 8, y + 14, Gfx.mix(Th.mut, 0xC0FFFFFF, t), c);
+            if (hit(cx, y, w, 28) && !sel) { commitEdit(); ColorPicker.close(); page = null; setTab(i); searchFocus = false; }
+            if (i == T_HUD && in(cx, y, w, 28) && !sel) tip = "HUD widgets: click one for its settings; add, remove and place them in the HUD editor";
         }
-        return x + 10;
+        Gfx.alpha = a0;
     }
 
-    /** Settings: General / Controls / Profiles, under the shared MODS | SETTINGS tabs. */
+    /** Settings: the Settings chip of the Mods screen (same panel and chip row); General / Title screen / Controls / Profiles under it. */
     private static void settingsScreen(float wheel, float e) {
-        float pw = Math.max(760, Math.min(1180, W * 0.86f)), ph = pageH(Math.max(500, Math.min(640, H * 0.86f)));
-        mainTabs(header(pw, ph, e, null, "NETHER"), sy + TOP / 2f);
-        PW = pw + 16;
-        PH = ph + 62;
-        settingsPage(sx - 8, sy - 68, wheel, sx, sy, pw, ph);
+        mainHeader(e);
+        catRow(sx + 16, sy + TOP + 10);
+        PW = sw + 16;
+        PH = sh + 62;
+        settingsPage(sx - 8, sy - 68, wheel, sx, sy, sw, sh);
         footer(page != null ? "Esc back to settings" : "Tab next page  \u00b7  Esc back");
     }
 
@@ -1595,30 +1611,30 @@ public final class Menu {
 
     private static void settingsPage(float cpx, float cpy, float wheel, float mx, float py, float mw, float ph) {
         navCols = 1;
-        // sub-pages: the same chips as the module categories
-        float cy0 = py + TOP + 10, a0 = Gfx.alpha;
+        // sub-pages: quiet text tabs with an accent underline, under the shared chip row
+        float cy0 = py + TOP + 48, a0 = Gfx.alpha;
         float[] cxs = new float[SET_TABS.length], cws = new float[SET_TABS.length];
         for (int i = 0, xx = 0; i < SET_TABS.length; i++) {
-            cws[i] = Gfx.width(Gfx.UI, 12, SET_TABS[i]) + 32;
+            cws[i] = Gfx.width(Gfx.SEMI, 12, SET_TABS[i]) + 24;
             cxs[i] = xx;
-            xx += (int) Math.ceil(cws[i] + 6);
+            xx += (int) Math.ceil(cws[i] + 4);
         }
         float bx = mx + 16;
-        for (int i = 0; i < SET_TABS.length; i++) if (sub != i) Gfx.rect(bx + cxs[i], cy0, cws[i], 28, 6, Gfx.mix(Th.s2, Th.s3, an("sch" + i, in(bx + cxs[i], cy0, cws[i], 28))));
         if (setPillX < 0 || Config.calm()) { setPillX = cxs[sub]; setPillW = cws[sub]; }
         float f0 = Math.min(1, Gfx.dt * 14);
         setPillX += (cxs[sub] - setPillX) * f0;
         setPillW += (cws[sub] - setPillW) * f0;
-        Gfx.rect(bx + setPillX, cy0, setPillW, 28, 6, Th.ac);
+        Gfx.rect(mx + 16, cy0 + 29, mw - 32, 1, 0, Th.ln);
+        Gfx.rect(bx + setPillX + 8, cy0 + 27, setPillW - 16, 3, 1.5f, Th.ac);
         for (int i = 0; i < SET_TABS.length; i++) {
-            boolean hv = in(bx + cxs[i], cy0, cws[i], 28);
-            Gfx.textC(Gfx.UI, 12, bx + cxs[i] + cws[i] / 2, cy0 + 14, Gfx.mix(Gfx.mix(Th.dim, Th.tx, hv ? 1 : 0), 0xFFFFFFFF, an("sc" + i, sub == i)), SET_TABS[i], 0);
-            if (hit(bx + cxs[i], cy0, cws[i], 28) && sub != i) { sub = i; scroll = scrollT = 0; fCur = -1; commitEdit(); ColorPicker.close(); }
+            boolean hv = in(bx + cxs[i], cy0, cws[i], 30);
+            Gfx.textC(Gfx.SEMI, 12, bx + cxs[i] + cws[i] / 2, cy0 + 13, Gfx.mix(Gfx.mix(Th.dim, Th.tx, hv ? 1 : 0), Th.tx, an("sc" + i, sub == i)), SET_TABS[i], 0);
+            if (hit(bx + cxs[i], cy0, cws[i], 30) && sub != i) { sub = i; scroll = scrollT = 0; fCur = -1; commitEdit(); ColorPicker.close(); }
         }
         Gfx.alpha = a0;
-        if (sub == 2) { float sp = PH; PH -= 40; Controls.draw(cpx, cpy + 40, wheel); PH = sp; return; }
-        if (sub == 3) { float sp = PH; PH -= 40; Profiles.draw(cpx, cpy + 40, wheel); PH = sp; return; }
-        float lx = mx + 20, lw = mw - 40, top = py + TOP + 48, viewH = py + ph - FOOT - top;
+        if (sub == 2) { float sp = PH; PH -= 80; Controls.draw(cpx, cpy + 80, wheel); PH = sp; return; }
+        if (sub == 3) { float sp = PH; PH -= 80; Profiles.draw(cpx, cpy + 80, wheel); PH = sp; return; }
+        float lx = mx + 20, lw = mw - 40, top = py + TOP + 88, viewH = py + ph - FOOT - top;
         Module mm = MainMenu.MODULE;
         float contentH = sub == 1 ? SettingsPage.flatH(mm, lw) + 20 : 26 + 3 * 62 + 26 + 62 + 20;
         float maxS = Math.max(0, contentH - viewH);

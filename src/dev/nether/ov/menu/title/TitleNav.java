@@ -53,14 +53,14 @@ public final class TitleNav {
         if (Screenshots.open) return GALLERY;
         if (Menu.tab == Menu.T_WARDROBE) return LOCKER;
         if (Menu.tab == Menu.T_FRIENDS) return SOCIAL;
-        if (Menu.tab == Menu.T_SETTINGS) return SETTINGS;
-        return MODS;
+        return MODS; // Settings is a chip of the Mods screen: MODS stays the lit tab
     }
 
     /** Opens a page (or the lobby). */
     static void go(int p) {
         gearOpen = false;
-        if (p == current()) return;
+        if (p == SETTINGS && Input.menuOpen && Menu.tab == Menu.T_SETTINGS) return;
+        if (p == current() && !(p == MODS && Menu.tab == Menu.T_SETTINGS)) return;
         if (p != GALLERY) Screenshots.open = false;
         switch (p) {
             case PLAY: Input.setMenu(false); break;
@@ -153,7 +153,7 @@ public final class TitleNav {
         if (iconBtn("quit", "close", rx, cy - 16, 32, false)) MainMenu.act(MainMenu.QUIT, Game.screen());
         if (over(rx, cy - 16, 32, 32)) tip = "Quit game";
         rx -= 38;
-        if (iconBtn("gear", "settings", rx, cy - 16, 32, gearOpen || cur == SETTINGS)) gearOpen = !gearOpen;
+        if (iconBtn("gear", "settings", rx, cy - 16, 32, gearOpen)) gearOpen = !gearOpen;
         if (over(rx, cy - 16, 32, 32) && !gearOpen) tip = "Settings";
         rx -= 12;
         rx = account(rx, cy);
