@@ -15,9 +15,9 @@ change: what a player notices, not how it was done. At release, move the lines u
   text style keeps its look at any size.
 - Sky lyrics now sit in the sky itself on 1.21.2 - 26.1: hills, trees and clouds pass in front of them, and they stay
   put in the sky as you walk. Air, Row and Lines words fade when a wall or tree is between you and them.
-- The 3D lyrics panel opens a white bubble round you, with the panel on its wall, like stepping into a settings room.
-  It moves with you instead of drifting, clicks never hit the hidden world, Esc leaves, and a new 3D panel distance
-  setting (default a little further than before) sets how far away it stands.
+- The 3D lyrics panel opens a plain white bubble round you, with the panel on its wall, like stepping into a settings
+  room. It moves with you instead of drifting and works like a normal screen: no walking, dropping, using items or
+  hotbar while it is open, and Esc leaves. A slider under the panel (also in settings) sets how far away it stands.
 - Fixed: your cape now shows on your character in the party lobby.
 - The 3D lyrics panel is a solid slab with visible edges from the side and a plain back, and it no longer vanishes
   while chat is open.

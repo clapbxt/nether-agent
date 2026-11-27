@@ -21,11 +21,11 @@ import dev.nether.ov.ui.Th;
 
 /**
  * The 3D lyric player (panel key, default O), in the manner of The Shooting Star's skill room: opening it wraps you in a
- * white bubble (it grows out from the middle of the view over the world; floor rings and soft shadows give it depth)
- * and the panel stands on the bubble's wall, as if you had stepped into a settings room. The panel is turned to face
- * you once when it opens (yaw only) and rides along with the camera from then on, so walking never makes it drift or
- * shake; you turn your head to look round it and aim with the crosshair: look at a control and click. Clicks never
- * reach the hidden world while the bubble is open; the key again, or Esc, leaves. Left, the track card (cover, title,
+ * plain white bubble (it grows out from the middle of the view over the world) and the panel stands on the bubble's
+ * wall, as if you had stepped into a settings room. The panel is turned to face you once when it opens (yaw only) and
+ * rides along with the camera from then on; you turn your head and aim with the crosshair: look at a control and
+ * click. While the bubble is open it works like a screen: no walking, dropping, using, hotbar or binds reach the game
+ * ({@link #blocking}); the key again, or Esc, leaves. A distance slider sits under the cards. Left, the track card (cover, title,
  * timeline, transport); right, a live lyric strip drawn by the world lyric renderer over five settings pages (Look,
  * Font, Display, Motion, Sync). Projected by the overlay with the game's own camera matrices ({@link Project}).
  */
@@ -81,8 +81,15 @@ public final class LyricsWorldPanel {
         openAt = Lyrics.ms();
         closeAt = -1;
         held = null;
+        Input.releaseHeld(); // like opening a screen: you stop walking / mining / using
         Sfx.open();
     }
+
+    /** The bubble is up and has the keyboard, mouse buttons and wheel (like a screen). */
+    public static boolean blocking() { return shown && closeAt < 0 && Input.inWorld() && !Game.screenOpen(); }
+
+    /** Esc inside the bubble: leave it. */
+    public static void escape() { close(); }
 
     static void hide() { shown = false; closeAt = -1; held = null; on = false; last.clear(); }
 
@@ -106,6 +113,10 @@ public final class LyricsWorldPanel {
 
     /** The panel's spot this frame: fixed relative to the camera (it travels with you inside the bubble). */
     private static void follow(double[] c) {
+        // the distance slider: the panel eases to its new distance once you let go (moving it under the crosshair
+        // while you drag would feed back into the drag)
+        double want = Math.max(2.5, Math.min(8, Modules.LYRICS.num("panelDist")));
+        if (held == null) dist += (want - dist) * Math.min(1, Gfx.dt * 10);
         double[] f = forward();
         x = c[0] + f[0] * dist; y = c[1] - 0.1 + lift; z = c[2] + f[2] * dist;
     }
@@ -134,7 +145,7 @@ public final class LyricsWorldPanel {
         double hx = c[0] + ray[0] * t - x, hy = c[1] + ray[1] * t - y, hz = c[2] + ray[2] * t - z;
         double[] r = right();
         float u = (float) ((hx * r[0] + hz * r[2]) / (unit * k)) + W / 2, v = H / 2 - (float) (hy / (unit * k));
-        return u < 0 || v < 0 || u > W || v > H ? null : new float[] {u, v};
+        return u < 0 || v < 0 || u > W || v > H + DH + 6 ? null : new float[] {u, v};
     }
 
     /** 0..1 through the opening (1 - through the closing): the bubble grows first, the panel settles in after it. */
@@ -148,8 +159,8 @@ public final class LyricsWorldPanel {
     // ---------------------------------------------------------------- input
 
     public static boolean pointerPress(int button) {
-        if (!shown || closeAt >= 0 || button > 1 || !Input.inWorld() || Game.screenOpen()) return false;
-        if (!on) return true; // inside the bubble: clicks never reach the world you cannot see
+        if (!blocking()) return false;
+        if (!on || button > 1) return true; // inside the bubble: clicks never reach the world you cannot see
         for (int i = last.size() - 1; i >= 0; i--) {
             Hit h = last.get(i);
             if (!h.in(pu, pv)) continue;
@@ -161,18 +172,19 @@ public final class LyricsWorldPanel {
 
     /** Wheel over a slider nudges it, over a paged grid turns the page. */
     public static boolean scroll(double amount) {
-        if (!shown || !on || closeAt >= 0 || !Input.inWorld() || Game.screenOpen()) return false;
+        if (!blocking()) return false;
+        if (!on) return true; // the hotbar does not turn under the bubble
         for (int i = last.size() - 1; i >= 0; i--) {
             Hit h = last.get(i);
             if (!h.in(pu, pv)) continue;
             if (h.set != null) {
-                if (h.step <= 0) return false;
+                if (h.step <= 0) return true;
                 h.set.accept(Math.max(0, Math.min(1, h.step * Math.round(cur(h) / h.step) + (amount > 0 ? h.step : -h.step))));
                 return true;
             }
             if (h.page) { fontPage += amount < 0 ? 1 : -1; return true; }
         }
-        return false;
+        return true;
     }
 
     private static final Map<String, Double> sliderNow = new HashMap<>();
@@ -200,7 +212,7 @@ public final class LyricsWorldPanel {
         if (!Input.inWorld() || !Project.begin(fbW, fbH)) { on = false; return; }
         follow(c);
         float bk = ease(Math.min(1, t / 0.6f)), k = ease(Math.max(0, Math.min(1, (t - 0.3f) / 0.7f)));
-        bubble(c, bk, fbW, fbH);
+        bubble(bk, fbW, fbH);
         if (k <= 0.01f) { on = false; aimDot(fbW, fbH, bk); return; }
         double scale = 0.88 + 0.12 * k;
         // cull only when the whole panel is behind you or off one side of the screen; a panel partly behind the camera
@@ -242,7 +254,6 @@ public final class LyricsWorldPanel {
         ArrayList<Hit> sw = last; last = hits; hits = sw; hits.clear();
         try {
             Gfx.alpha = a0 * k;
-            shadow(scale, fbW, fbH);
             slab(c, scale, facing, fbW, fbH);
             if (!facing) return;
             Gfx.round = true;
@@ -264,70 +275,21 @@ public final class LyricsWorldPanel {
 
     // ---------------------------------------------------------------- the bubble
 
-    /** Bubble colours: overhead, horizon band, floor at the horizon, floor underfoot; rings and shadows on the floor. */
-    private static final int B_TOP = 0xFFE9EDF3, B_HOR = 0xFFFCFDFE, B_FLOOR = 0xFFF1F3F7, B_FEET = 0xFFD3D9E3, B_RING = 0xFF7D879A;
-
     /**
-     * The white room: an inside-of-a-sphere gradient (bright band at the horizon, cooler overhead, greyer underfoot),
-     * rings round you drawn on the real floor plane (perspective from the game's matrices) out to the bubble's wall,
-     * and your own soft shadow. While it opens it grows from the middle of the view as a disc. Framebuffer px.
+     * The white room: plain white everywhere. While it opens it grows from the middle of the view as a disc.
+     * Framebuffer px.
      */
-    private static void bubble(double[] c, float bk, int fbW, int fbH) {
+    private static void bubble(float bk, int fbW, int fbH) {
         if (bk <= 0.005f) return;
         float s0 = Gfx.s, a0 = Gfx.alpha;
         boolean r0 = Gfx.round;
         try {
             Gfx.s = 1;
             Gfx.round = true;
-            float hy; // the horizon's height on screen
-            double yr = Math.toRadians(c[3]);
-            if (Project.to(c[0] - Math.sin(yr) * 1000, c[1], c[2] + Math.cos(yr) * 1000)) hy = Project.sy(fbH);
-            else hy = c[4] < 0 ? fbH * 2f : -fbH;
-            float full = Math.max(0, Math.min(1, (bk - 0.82f) / 0.18f));
-            if (full < 1) { // the disc growing out of the middle of the view
-                float R = bk * (float) Math.hypot(fbW, fbH) * 0.52f;
-                Gfx.alpha = a0 * Math.min(1, bk * 2.2f);
-                Gfx.rectG(fbW / 2f - R, fbH / 2f - R, 2 * R, 2 * R, R, B_TOP, B_FEET);
-                Gfx.ring(fbW / 2f - R, fbH / 2f - R, 2 * R, 2 * R, R, Math.max(1, fbH / 300f), Gfx.a(0xFFFFFFFF, 0.9f * (1 - full)));
-            }
-            if (full > 0) {
-                Gfx.alpha = a0 * full;
-                float top = Math.max(0, Math.min(fbH, hy));
-                if (top > 0) Gfx.rectG(0, 0, fbW, top, 0, Gfx.mix(B_HOR, B_TOP, Math.min(1, top / (fbH * 0.6f))), B_HOR);
-                if (top < fbH) Gfx.rectG(0, top, fbW, fbH - top, 0, B_FLOOR, Gfx.mix(B_FLOOR, B_FEET, Math.min(1, (fbH - top) / (fbH * 0.7f))));
-                if (hy > -4 && hy < fbH + 4) Gfx.rect(0, hy - 1, fbW, 2, 0, Gfx.a(B_RING, 0.12f));
-                // the floor: rings round you out to the bubble's wall, and your shadow
-                double fy = c[1] - 1.62, k = 1 / 32.0;
-                Gfx.map(Project.planeMap(new double[] {c[0], fy, c[2]}, new double[] {k, 0, 0}, new double[] {0, 0, k}, fbW, fbH));
-                Gfx.rect(-15, -15, 30, 30, 15, Gfx.a(0xFF1A2030, 0.13f));
-                Gfx.rect(-26, -26, 52, 52, 26, Gfx.a(0xFF1A2030, 0.05f));
-                double edge = dist + 1.6;
-                for (int i = 1; i <= 4; i++) {
-                    float r = (float) (edge * 32 * i / 4);
-                    Gfx.ring(-r, -r, 2 * r, 2 * r, r, i == 4 ? 2.2f : 1.3f, Gfx.a(B_RING, i == 4 ? 0.2f : 0.11f));
-                }
-                Gfx.unmap();
-            }
+            Gfx.alpha = a0 * Math.min(1, bk * 2.2f);
+            if (bk < 1) { float R = bk * (float) Math.hypot(fbW, fbH) * 0.52f; Gfx.rect(fbW / 2f - R, fbH / 2f - R, 2 * R, 2 * R, R, 0xFFFFFFFF); }
+            else Gfx.rect(0, 0, fbW, fbH, 0, 0xFFFFFFFF);
         } finally { Gfx.s = s0; Gfx.alpha = a0; Gfx.round = r0; }
-    }
-
-    /** The panel's soft shadow on the floor under it. */
-    private static void shadow(double scale, int fbW, int fbH) {
-        double[] c = Game.camera();
-        if (c == null) return;
-        double[] f = forward(), r = right();
-        double k = 1 / 32.0, fy = c[1] - 1.62;
-        float s0 = Gfx.s;
-        boolean r0 = Gfx.round;
-        try {
-            Gfx.s = 1;
-            Gfx.round = true;
-            Gfx.map(Project.planeMap(new double[] {x, fy, z}, new double[] {r[0] * k, 0, r[2] * k}, new double[] {f[0] * k, 0, f[2] * k}, fbW, fbH));
-            float hw = (float) (W / 2 * unit * scale * 32);
-            Gfx.rect(-hw - 10, -14, 2 * hw + 20, 28, 14, Gfx.a(0xFF1A2030, 0.06f));
-            Gfx.rect(-hw, -7, 2 * hw, 14, 7, Gfx.a(0xFF1A2030, 0.1f));
-            Gfx.unmap();
-        } finally { Gfx.s = s0; Gfx.round = r0; }
     }
 
     /** Where you aim while off the panel (the game's crosshair is under the bubble). */
@@ -447,7 +409,15 @@ public final class LyricsWorldPanel {
             float tx = CX + i * (tw + 3);
             if (chip("tab" + i, TABS[i], tx, H - 26, tw, 16, page == i)) page = pi;
         }
+        // under the cards: how far away the panel stands
+        float dx = (W - DW) / 2, dy = H + 6;
+        Gfx.rect(dx, dy, DW, DH, DH / 2, Gfx.a(Gfx.mix(Th.s2, Th.bg, 0.5f), 0.97f));
+        Gfx.ring(dx, dy, DW, DH, DH / 2, 1, Gfx.a(Th.ln2, 0.9f));
+        slider(L, "panelDist", "Panel distance", dx + 12, DW - 24, dy + DH / 2, 2.5, 8, 0.1, "");
     }
+
+    /** The distance strip under the cards, in units. */
+    private static final float DW = 210, DH = 20;
 
     private static void card(float x0, float y0, float w, float h) {
         for (int i = 3; i >= 1; i--) Gfx.rect(x0 - i * 2, y0 - i * 2, w + i * 4, h + i * 4, 14 + i * 2, Gfx.a(Th.ac, 0.035f));
@@ -684,18 +654,22 @@ public final class LyricsWorldPanel {
 
     /** Label, track and value of a numeric setting; drag along it or use the wheel. */
     private static void slider(Lyrics L, String key, String label, float cy, double min, double max, double step, String unit) {
+        slider(L, key, label, CX, CW, cy, min, max, step, unit);
+    }
+
+    private static void slider(Lyrics L, String key, String label, float sx, float sw, float cy, double min, double max, double step, String unit) {
         double v = L.num(key);
-        float tx = CX + 58, tw = CW - 58 - 30, f = (float) Math.max(0, Math.min(1, (v - min) / (max - min)));
-        boolean hot = over(CX, cy - 6, CW, 12), drag = held != null && held.id.equals("sl." + key);
+        float tx = sx + 58, tw = sw - 58 - 30, f = (float) Math.max(0, Math.min(1, (v - min) / (max - min)));
+        boolean hot = over(sx, cy - 6, sw, 12), drag = held != null && held.id.equals("sl." + key);
         float t = hv("sl." + key, hot || drag);
-        Gfx.text(Gfx.UI, 7, CX, cy, Gfx.mix(Th.dim, Th.tx, t), label);
+        Gfx.text(Gfx.UI, 7, sx, cy, Gfx.mix(Th.dim, Th.tx, t), label);
         Gfx.rect(tx, cy - 1.5f, tw, 3, 1.5f, Gfx.a(Th.ov, 0.14f + 0.06f * t));
         Gfx.rect(tx, cy - 1.5f, Math.max(3, tw * f), 3, 1.5f, Th.ac);
         float kr = 3.6f + t;
         Gfx.rect(tx + tw * f - kr, cy - kr, 2 * kr, 2 * kr, kr, 0xFFEAEEF3);
         String vs = (step >= 1 ? String.valueOf(Math.round(v)) : String.format(Locale.ROOT, "%.1f", v)) + unit;
-        Gfx.text(Gfx.MONO, 6, CX + CW - Gfx.width(Gfx.MONO, 6, vs), cy, Th.dim, vs);
-        Hit h = add("sl." + key, CX, cy - 6, CW, 12);
+        Gfx.text(Gfx.MONO, 6, sx + sw - Gfx.width(Gfx.MONO, 6, vs), cy, Th.dim, vs);
+        Hit h = add("sl." + key, sx, cy - 6, sw, 12);
         h.x0 = tx; h.w0 = tw; h.step = step / (max - min);
         sliderNow.put(h.id, (double) f);
         h.set = fr -> {

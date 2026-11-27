@@ -83,6 +83,9 @@ public final class Input {
         }
     }
 
+    /** Hand the game a release for every key still held (a screen-like overlay opened: no walking on into it). */
+    public static void releaseHeld() { for (int k = 32; k < keys.length; k++) if (keys[k]) synthKey(k, RELEASE); }
+
     /** Dev: a key event as if typed on the keyboard (through our filters, then to the game unless swallowed). */
     public static void devKey(int key, int action) {
         if (!onKey(window, key, action)) synthKey(key, action);
@@ -183,6 +186,13 @@ public final class Input {
             keyEv.add(new int[] {key, action});
             return true;
         }
+        // the 3D lyric panel's bubble works like a screen: no walking, dropping, hotbar or other binds; releases, the
+        // F keys (screenshot, debug, fullscreen) and the panel key still go through, Esc leaves
+        if (LyricsWorldPanel.blocking()) {
+            if (action == RELEASE || key >= 290 && key <= 301 || key == (int) Modules.LYRICS.num("panelKey")) return Modules.onKey(key, action);
+            if (key == 256 && action == PRESS) LyricsWorldPanel.escape();
+            return true;
+        }
         return Modules.onKey(key, action);
     }
 
@@ -207,7 +217,7 @@ public final class Input {
             }
             return true;
         }
-        if (!menuOpen && action == PRESS && b <= 1 && LyricsWorldPanel.visible() && LyricsWorldPanel.pointerPress(b)) { ourBtn[b] = true; return true; }
+        if (!menuOpen && action == PRESS && LyricsWorldPanel.visible() && LyricsWorldPanel.pointerPress(b)) { ourBtn[b] = true; return true; }
         if (action == PRESS && !menuOpen && Party.button(b)) return true;
         if (menuOpen) {
             if (action == PRESS) {
