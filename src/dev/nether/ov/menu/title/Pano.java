@@ -13,7 +13,7 @@ public final class Pano {
     private Pano() {}
 
     /** panorama folders under pano/, in the order the setting lists them */
-    static final String[] NAMES = {"Sakura", "Valley", "Peaks", "Village", "Mesa"};
+    static final String[] NAMES = {"Sakura", "Lookout", "Meadow", "Dusk", "Valley", "Peaks", "Village", "Mesa"};
     static final String[] CHOICES = new String[NAMES.length + 1];
     static { CHOICES[0] = "Random"; System.arraycopy(NAMES, 0, CHOICES, 1, NAMES.length); }
 
@@ -52,7 +52,7 @@ public final class Pano {
             Thread t = new Thread(() -> {
                 try {
                     // shipped strips (pano/<name>.jpg) until cube-face folders replace them
-                    byte[] jpg = dev.nether.agent.Hook.file.apply("pano/" + name + "/panorama_0.png") == null ? dev.nether.agent.Hook.file.apply("pano/" + name + ".jpg") : null;
+                    byte[] jpg = face(name, 0) == null ? dev.nether.agent.Hook.file.apply("pano/" + name + ".jpg") : null;
                     if (jpg != null) {
                         BufferedImage i = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(jpg));
                         if (i == null) throw new IllegalArgumentException("unreadable strip");
@@ -63,7 +63,7 @@ public final class Pano {
                     BufferedImage[] faces = new BufferedImage[6];
                     int edge = -1;
                     for (int f = 0; f < faces.length; f++) {
-                        byte[] b = dev.nether.agent.Hook.file.apply("pano/" + name + "/panorama_" + f + ".png");
+                        byte[] b = face(name, f);
                         faces[f] = b == null ? null : javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(b));
                         if (faces[f] == null || faces[f].getWidth() != faces[f].getHeight()
                                 || (edge >= 0 && faces[f].getWidth() != edge)) throw new IllegalArgumentException("missing or mismatched panorama face " + f);
@@ -82,6 +82,12 @@ public final class Pano {
             t.start();
         }
         return false;
+    }
+
+    /** Cube face f of a panorama folder: shipped as JPEG (panorama_N.jpg, a tenth of the PNG's size), PNG also read. */
+    private static byte[] face(String name, int f) {
+        byte[] b = dev.nether.agent.Hook.file.apply("pano/" + name + "/panorama_" + f + ".jpg");
+        return b != null ? b : dev.nether.agent.Hook.file.apply("pano/" + name + "/panorama_" + f + ".png");
     }
 
     /**
