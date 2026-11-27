@@ -111,7 +111,15 @@ public final class Menu {
         return 1 - (1 - x) * (1 - x) * (1 - x);
     }
 
+    /**
+     * The menu was opened straight onto a screen (the pause screen's Nether / Wardrobe / Friends buttons, a module's
+     * settings key): back and Esc then close it instead of stepping to the hub, which it never showed. Stepping to the
+     * hub first made it flash for a frame on the way out, or stay open on the hub (Wardrobe).
+     */
+    static boolean direct;
+
     public static void opened() {
+        direct = false;
         Sfx.open();
         tS = gridT = 0; tDir = 0; pillX = -1; hub = true; drag = capture = null; searchFocus = false; scroll = scrollT = 0; fCur = -1; kbNav = false;
         // the title screen shows the hub's actions itself (MainMenu.actions): the menu key goes straight to the mods
@@ -123,8 +131,11 @@ public final class Menu {
 
     /** Open the menu straight on screen t (the title screen's actions row). */
     public static void openAt(int t) {
+        boolean was = Input.menuOpen;
         Input.setMenu(true);
-        if (Input.menuOpen) go(t);
+        if (!Input.menuOpen) return;
+        if (!was) direct = true;
+        go(t);
     }
     public static void closed() {
         commitEdit();
@@ -319,7 +330,9 @@ public final class Menu {
 
     /** Opens the menu straight on a module's settings page (the lyrics settings key). */
     public static void openModule(String id) {
+        boolean was = Input.menuOpen;
         Input.setMenu(true);
+        if (Input.menuOpen && !was) direct = true;
         if (!Input.menuOpen) return;
         hub = false;
         if (tab >= T_WARDROBE) setTab(1);
@@ -856,7 +869,8 @@ public final class Menu {
     private static void toHub() {
         if (!leaveOk(Menu::toHub)) return;
         // over the title screen there is no hub (its actions are on the screen): back closes the menu
-        if (MainMenu.title) { commitEdit(); ColorPicker.close(); page = null; search = ""; searchFocus = false; capture = null; Input.setMenu(false); return; }
+        // opened straight onto this screen (pause screen buttons): back closes, the hub never shows
+        if (MainMenu.title || direct) { commitEdit(); ColorPicker.close(); page = null; search = ""; searchFocus = false; capture = null; Input.setMenu(false); return; }
         commitEdit();
         ColorPicker.close();
         page = null;

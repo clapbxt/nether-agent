@@ -264,7 +264,8 @@ public final class MainMenu {
             int wy = br[1] + 24 * (row++ - 1);
             Leave.place(w[0], br[0], wy);
             // the game draws this button's tooltip over everything of ours: keep our square buttons out of its way
-            if (!Input.menuOpen && MX >= br[0] * 2 && MX < (br[0] + br[2]) * 2 && MY >= wy * 2 && MY < (wy + 20) * 2) vanillaTip = new float[] {MX - 4, MY, 380, 150};
+            // (Mod Menu's Mods button has none: hovering it must not hide Screenshots / Edit HUD beside it)
+            if (!Input.menuOpen && !modMenu(w[0]) && MX >= br[0] * 2 && MX < (br[0] + br[2]) * 2 && MY >= wy * 2 && MY < (wy + 20) * 2) vanillaTip = new float[] {MX - 4, MY, 380, 150};
         }
         int qr = Math.max(4, row);
         Leave.place(quit, br[0], br[1] + 24 * (qr - 1));
