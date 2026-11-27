@@ -4,6 +4,10 @@ What changed in each client release, newest first. Add a line under **Unreleased
 change: what a player notices, not how it was done. At release, move the lines under the new version.
 
 ## Unreleased
+- Mods and Settings are one screen: Settings is the last chip after the module categories and HUD, and switching between them only swaps what is under the chips (no more pop-in like a new window). In the lobby, the MODS tab stays lit while Settings is open.
+- Title panoramas are softly blurred (Main Menu > Blur), and the game's own menus outside a world (options, server list, connecting...) now show Nether's panorama instead of Minecraft's ("Panorama in every menu").
+- Lobby: you stand on the stage in your own skin with your cape and cosmetics again, with or without a party.
+- Game mode selector: bigger, typing works in Add / Edit Server on 26.x, and server icons load (the status ping now uses the game's own protocol).
 - Module settings: typing no longer fills the settings search; click the search box (or Ctrl+F) first. Esc in the HUD editor opened from the pause screen now goes straight back to the game instead of through the menu. The pause screen's square icon buttons no longer draw on top of a server button's tooltip.
 - HUD editor: the toolbar is just the buttons (Add widget, Undo, Redo, Reset all, Done), no help text. Widget settings are simpler: scale, font, text colour or rainbow, labels, background and its opacity (label colour, text shadow, accent bar and outline are gone). The opacity slider no longer cuts off its name.
 - Pause screen (1.16+): the button is now "Nether". The big buttons are stacked as one column (Back to Game, Nether, Mods and any server's custom buttons, then Save and Quit / Disconnect last), so a server's custom button can no longer cover Disconnect. Every small vanilla button (Advancements, Statistics, Open to LAN / World Options, Give Feedback, Report Bugs, Player Reporting, Friends, Server Links) is now a square with an icon in the bottom left; Screenshots, Edit HUD, Invite and Party sit up the right side from the leave button.
