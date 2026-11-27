@@ -61,6 +61,8 @@ public final class MainMenu {
         m.add(Setting.choice("pano", "Panorama", "Random", Pano.CHOICES).hint("Nether's own shader-lit scenes. Random picks a different one each time the game starts."));
         m.add(Setting.slider("dim", "Dim", 0, 0.8, 0.05, 0.3).hint("Darkens the panorama behind the menu."));
         m.add(Setting.bool("spin", "Animate background", true).hint("The panorama turns slowly. Reduce motion stops it."));
+        m.add(Setting.slider("blur", "Blur", 0, 1, 0.05, 0.5).hint("Softens the panorama so the menu stays easy to read."));
+        m.add(Setting.bool("panoEverywhere", "Panorama in every menu", true).hint("The game's own menus (options, server list, connecting) show this panorama too, instead of Minecraft's."));
         m.add(Setting.header("Layout"));
         m.add(Setting.choice("layout", "Layout", "Lobby", LAYOUTS).hint("Lobby: your party on stage, Fortnite style."));
         m.add(Setting.bool("partyStage", "Party on stage", true).hint("Lobby layout: you and your party in your skins."));
@@ -74,6 +76,8 @@ public final class MainMenu {
         m.add(Setting.bool("clock", "Clock", true).hint("Follows the Clock module's 24-hour setting."));
         m.add(Setting.bool("account", "Account", true).hint("Your name and skin head (skin from Mojang's profile service)."));
     }
+
+    static { dev.nether.agent.Hook.panoDraw = Pano::menu; } // the game's own menus show our panorama too
 
     private static Class<?> cTitle, cPause, cMods;
     private static Field fFading, fFadeStart, fSplash;

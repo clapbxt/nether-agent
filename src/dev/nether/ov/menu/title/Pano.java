@@ -30,8 +30,12 @@ public final class Pano {
     private static volatile BufferedImage[] readyFaces;
     private static volatile String readyName, failed;
     private static volatile boolean busy;
+    private static volatile int readyBlur;
     private static String loaded;
+    /** blur radius (percent of a face's edge, x10) the loaded textures were made with */
+    private static int loadedBlur = -1;
     private static float yaw = -1, fade;
+    private static long turnedAt;
 
     private static void drop(String n) {
         Gfx.dropTexture("pano:" + n);
@@ -50,16 +54,20 @@ public final class Pano {
         BufferedImage[] fc = readyFaces;
         if (img != null || fc != null) {
             String n = readyName;
-            if (loaded != null && !loaded.equals(n)) drop(loaded);
+            boolean same = n.equals(loaded);
+            if (loaded != null && !same) drop(loaded);
             if (fc != null) for (int f = 0; f < 6; f++) Gfx.texture("pano:" + n + ":" + f, fc[f], true);
             else Gfx.texture("pano:" + n, img, true);
             loaded = n;
+            loadedBlur = readyBlur;
             ready = null;
             readyFaces = null;
-            fade = 0;
+            if (!same) fade = 0; // a new blur strength of the same panorama swaps in place
         }
-        if (name.equals(loaded) && (Gfx.hasTexture("pano:" + name) || Gfx.hasTexture("pano:" + name + ":0"))) return true;
-        if (!busy && !name.equals(failed)) {
+        final int blur = blurWanted();
+        boolean have = name.equals(loaded) && (Gfx.hasTexture("pano:" + name) || Gfx.hasTexture("pano:" + name + ":0"));
+        if (have && blur == loadedBlur) return true;
+        if (!busy && !(name.equals(failed) && !have)) {
             busy = true;
             Thread t = new Thread(() -> {
                 try {
@@ -68,8 +76,9 @@ public final class Pano {
                     if (jpg != null) {
                         BufferedImage i = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(jpg));
                         if (i == null) throw new IllegalArgumentException("unreadable strip");
+                        readyBlur = blur;
                         readyName = name;
-                        ready = sharpen(i);
+                        ready = blur > 0 ? blurStrip(i, blur) : sharpen(i);
                         return;
                     }
                     BufferedImage[] faces = new BufferedImage[6];
@@ -82,6 +91,8 @@ public final class Pano {
                         edge = faces[f].getWidth();
                     }
                     matchSeams(faces, edge);
+                    if (blur > 0) faces = blurCube(faces, edge, blur);
+                    readyBlur = blur;
                     readyName = name;
                     readyFaces = faces;
                 } catch (Throwable e) {
@@ -93,7 +104,79 @@ public final class Pano {
             t.setPriority(Thread.MIN_PRIORITY);
             t.start();
         }
-        return false;
+        return have; // a new blur strength is being made: the old one shows meanwhile
+    }
+
+    /** The Blur setting as a radius in tenths of a percent of the face edge (0 = sharp). */
+    private static int blurWanted() {
+        return (int) Math.round(Math.max(0, Math.min(1, MainMenu.MODULE.num("blur"))) * 12);
+    }
+
+    /**
+     * Soft focus for the cube faces (the captures are very detailed, and turning slowly they shimmered and pulled the eye
+     * from the menu): three box blurs (close to a Gaussian) per face. Each face is padded with its neighbours' pixels
+     * first, looked up through the cube, so the blur runs across the seams and no edge shows.
+     */
+    static BufferedImage[] blurCube(BufferedImage[] f, int edge, int blur) {
+        int r = Math.max(1, Math.round(edge * blur / 1000f)), pad = r * 3 + 1, pw = edge + 2 * pad;
+        int[][] src = new int[6][];
+        for (int i = 0; i < 6; i++) src[i] = f[i].getRGB(0, 0, edge, edge, null, 0, edge);
+        BufferedImage[] out = new BufferedImage[6];
+        float[] d = new float[3], uv = new float[2];
+        int[] p = new int[pw * pw], t = new int[pw * pw];
+        for (int face = 0; face < 6; face++) {
+            for (int y = 0; y < pw; y++) for (int x = 0; x < pw; x++) {
+                int ix = x - pad, iy = y - pad;
+                if (ix >= 0 && iy >= 0 && ix < edge && iy < edge) { p[y * pw + x] = src[face][iy * edge + ix]; continue; }
+                dir(face, (ix + 0.5f) / edge, (iy + 0.5f) / edge, d);
+                int nf = locate(d[0], d[1], d[2], uv);
+                int nx = Math.max(0, Math.min(edge - 1, (int) (uv[0] * edge))), ny = Math.max(0, Math.min(edge - 1, (int) (uv[1] * edge)));
+                p[y * pw + x] = src[nf][ny * edge + nx];
+            }
+            for (int pass = 0; pass < 3; pass++) { boxH(p, t, pw, pw, r); boxV(t, p, pw, pw, r); }
+            BufferedImage o = new BufferedImage(edge, edge, BufferedImage.TYPE_INT_RGB);
+            o.setRGB(0, 0, edge, edge, p, pad * pw + pad, pw);
+            out[face] = o;
+        }
+        return out;
+    }
+
+    /** The same soft focus for a strip (wraps round left and right, clamps top and bottom). */
+    static BufferedImage blurStrip(BufferedImage src, int blur) {
+        int w = src.getWidth(), h = src.getHeight(), r = Math.max(1, Math.round(h * blur / 1000f));
+        int[] p = src.getRGB(0, 0, w, h, null, 0, w), t = new int[p.length];
+        for (int pass = 0; pass < 3; pass++) { boxH(p, t, w, h, r); boxV(t, p, w, h, r); }
+        BufferedImage o = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        o.setRGB(0, 0, w, h, p, 0, w);
+        return o;
+    }
+
+    /** Horizontal box blur of radius r, src into dst (edges clamp). */
+    private static void boxH(int[] src, int[] dst, int w, int h, int r) {
+        float n = 2 * r + 1;
+        for (int y = 0; y < h; y++) {
+            int row = y * w, sr = 0, sg = 0, sb = 0;
+            for (int k = -r; k <= r; k++) { int c = src[row + Math.max(0, Math.min(w - 1, k))]; sr += c >> 16 & 255; sg += c >> 8 & 255; sb += c & 255; }
+            for (int x = 0; x < w; x++) {
+                dst[row + x] = 0xFF000000 | Math.round(sr / n) << 16 | Math.round(sg / n) << 8 | Math.round(sb / n);
+                int a = src[row + Math.max(0, x - r)], b = src[row + Math.min(w - 1, x + r + 1)];
+                sr += (b >> 16 & 255) - (a >> 16 & 255); sg += (b >> 8 & 255) - (a >> 8 & 255); sb += (b & 255) - (a & 255);
+            }
+        }
+    }
+
+    /** Vertical box blur of radius r, src into dst (edges clamp). */
+    private static void boxV(int[] src, int[] dst, int w, int h, int r) {
+        float n = 2 * r + 1;
+        for (int x = 0; x < w; x++) {
+            int sr = 0, sg = 0, sb = 0;
+            for (int k = -r; k <= r; k++) { int c = src[Math.max(0, Math.min(h - 1, k)) * w + x]; sr += c >> 16 & 255; sg += c >> 8 & 255; sb += c & 255; }
+            for (int y = 0; y < h; y++) {
+                dst[y * w + x] = 0xFF000000 | Math.round(sr / n) << 16 | Math.round(sg / n) << 8 | Math.round(sb / n);
+                int a = src[Math.max(0, y - r) * w + x], b = src[Math.min(h - 1, y + r + 1) * w + x];
+                sr += (b >> 16 & 255) - (a >> 16 & 255); sg += (b >> 8 & 255) - (a >> 8 & 255); sb += (b & 255) - (a & 255);
+            }
+        }
     }
 
     /** Cube face f of a panorama folder: shipped as JPEG (panorama_N.jpg, a tenth of the PNG's size), PNG also read. */
@@ -148,10 +231,74 @@ public final class Pano {
         String name = wanted(choice);
         if (!ready(name)) return false;
         if (yaw < 0) yaw = new java.util.Random().nextFloat() * 360; // each start opens on a different side
-        if (anim) yaw = (yaw + SPEED * Math.min(Gfx.dt, 0.1f)) % 360;
-        fade = Math.min(1, fade + Gfx.dt * 1.6f);
+        long now = System.nanoTime();
+        float dt = turnedAt == 0 ? 0 : Math.min(0.1f, (now - turnedAt) / 1e9f); // by the clock: the game's menus and our title can both draw it in one frame
+        turnedAt = now;
+        if (anim) yaw = (yaw + SPEED * dt) % 360;
+        fade = Math.min(1, fade + dt * 1.6f);
         view(name, 0, 0, W, H, yaw, Gfx.hasTexture("pano:" + name + ":0") ? VANILLA_TV : 0.6f, 0, fade);
         return true;
+    }
+
+    // ---------------------------------------------------------------- the game's own menus (Hook.pano)
+
+    private static int fbTex = -1, fbId;
+
+    /** Our framebuffer with the game's main colour texture attached (made again when the game swaps it on resize). */
+    private static int fbo(int tex) {
+        if (tex == fbTex && fbId != 0) return fbId;
+        int prev = org.lwjgl.opengl.GL11.glGetInteger(0x8CA6); // DRAW_FRAMEBUFFER_BINDING
+        if (fbId == 0) fbId = org.lwjgl.opengl.GL30.glGenFramebuffers();
+        org.lwjgl.opengl.GL30.glBindFramebuffer(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER, fbId);
+        org.lwjgl.opengl.GL30.glFramebufferTexture2D(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER, org.lwjgl.opengl.GL30.GL_COLOR_ATTACHMENT0, org.lwjgl.opengl.GL11.GL_TEXTURE_2D, tex, 0);
+        boolean ok = org.lwjgl.opengl.GL30.glCheckFramebufferStatus(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER) == org.lwjgl.opengl.GL30.GL_FRAMEBUFFER_COMPLETE;
+        org.lwjgl.opengl.GL30.glBindFramebuffer(org.lwjgl.opengl.GL30.GL_FRAMEBUFFER, prev);
+        fbTex = tex;
+        if (!ok) { System.out.println("[nether-agent] menu panorama: target not usable"); return 0; }
+        return fbId;
+    }
+
+    /**
+     * Instead of the game's panorama (its CubeMap.render, hooked): ours, into the game's main render target, under the
+     * menu the game draws next. Its own menu blur and darkening (1.20.5+) then apply on top, as they do to its panorama.
+     * False (the game draws its own) while ours loads, when the setting is off or no target can be found.
+     */
+    static boolean menu() {
+        if (!MainMenu.MODULE.available() || !MainMenu.MODULE.bool("panoEverywhere") || dev.nether.ov.game.Game.legacy()) return false;
+        if (dev.nether.ov.platform.GlBackend.cur == null) return false;
+        String name = wanted(MainMenu.MODULE.str("pano"));
+        Object rt = dev.nether.ov.game.Game.call(dev.nether.ov.game.Game.mc(), "method_1522");
+        if (rt == null) return false;
+        Object ct = dev.nether.ov.game.Game.call(rt, "method_30277");
+        Object id = ct == null || ct instanceof Integer ? null : dev.nether.ov.game.Game.call(ct, "method_68427"); // 1.21.5+: GlTexture id
+        Object wO = dev.nether.ov.game.Game.fld(rt, "field_1482"), hO = dev.nether.ov.game.Game.fld(rt, "field_1481");
+        if (!(wO instanceof Integer) || !(hO instanceof Integer)) return false;
+        int W = (Integer) wO, H = (Integer) hO;
+        // 1.21.5+: nothing is bound between passes, so we draw through our own framebuffer on its colour texture;
+        // before that the game's target is still bound while it draws the menu
+        int fb = id instanceof Integer ? fbo((Integer) id) : org.lwjgl.opengl.GL11.glGetInteger(0x8CA6);
+        if (fb == 0 || W <= 0 || H <= 0) return false;
+        int w0 = Gfx.fbW, h0 = Gfx.fbH;
+        float s0 = Gfx.s, a0 = Gfx.alpha;
+        boolean drawn = false;
+        dev.nether.ov.platform.GlBackend.targetFb = fb;
+        Gfx.begin(W, H);
+        try {
+            Gfx.s = 1;
+            Gfx.alpha = 1;
+            if (!ready(name)) return false; // uploads inside our GL state (Gfx.texture saves the game's first)
+            boolean anim = MainMenu.MODULE.bool("spin") && !dev.nether.ov.framework.Config.calm();
+            fade = 1; // the game's panorama is not under it here: no fade in over an empty frame
+            drawn = title(W, H, MainMenu.MODULE.str("pano"), anim);
+        } finally {
+            Gfx.end();
+            dev.nether.ov.platform.GlBackend.targetFb = 0;
+            Gfx.fbW = w0;
+            Gfx.fbH = h0;
+            Gfx.s = s0;
+            Gfx.alpha = a0;
+        }
+        return drawn;
     }
 
     /** A still view of the given (or the random) panorama inside a box, for editor previews; false while loading. */

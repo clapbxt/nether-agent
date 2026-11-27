@@ -247,6 +247,17 @@ public final class Hook {
     public static volatile Object levelView, levelProj, levelCam;
     public static volatile long levelFrame, levelNs;
     public static void levelMats(Object view, Object proj, Object cam) { levelView = view; levelProj = proj; levelCam = cam; levelFrame++; levelNs = System.nanoTime(); }
+    /**
+     * Nether's panorama in the game's own menus: CubeMap.render (the game's panorama, behind every menu outside a world on
+     * 1.20.5+, the title screen before) asks this first; true = we drew ours, the game's is skipped.
+     */
+    public static volatile java.util.function.BooleanSupplier panoDraw;
+    public static volatile boolean panoHooked;
+    public static boolean pano() {
+        java.util.function.BooleanSupplier d = panoDraw;
+        if (d == null) return false;
+        try { return d.getAsBoolean(); } catch (Throwable x) { panoDraw = null; System.out.println("[nether-agent] menu panorama off: " + x); return false; }
+    }
     /** Custom sky (1.21.2 - 26.1): drawn after SkyRenderer.renderSkyDisc, inside the world pass. */
     public static volatile Runnable skyModernDraw;
     public static void skyModern() {
