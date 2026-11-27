@@ -163,6 +163,18 @@ public final class Wardrobe {
         return any ? l : null;
     }
 
+    /** The signed-in player's dashless uuid from the launcher's state, or "" before it has one. */
+    public static String ownUuid() {
+        reload();
+        return loaded ? uuid.replace("-", "").toLowerCase(java.util.Locale.ROOT) : "";
+    }
+
+    /** The signed-in player's skin from the launcher's state (the same file the wardrobe preview uses), or null. */
+    public static BufferedImage ownSkin() { reload(); return loaded ? skin : null; }
+
+    /** The signed-in player's skin model is slim (Alex arms). */
+    public static boolean ownSlim() { return slim; }
+
     private static BufferedImage read(Path p) {
         if (!Files.isRegularFile(p)) return null;
         try (java.io.InputStream in = Files.newInputStream(p)) { return Icons.decode(in); } catch (Throwable t) { return null; }

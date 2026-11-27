@@ -989,6 +989,9 @@ public final class MainMenu {
 
     public static String accName;
     private static String accUuid;
+
+    /** The signed-in account's dashless uuid from the game's session, or null before it is read. */
+    public static String accUuid() { return accUuid; }
     private static boolean accTried;
     private static int headState; // 0 to do, 1 profile asked, 2 skin asked, 3 done (head or none)
     private static Net.Req req;

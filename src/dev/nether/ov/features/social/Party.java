@@ -302,8 +302,8 @@ public final class Party {
         if ("server".equals(at)) { addr = srv.trim().toLowerCase(Locale.ROOT); if (addr.indexOf(':') < 0) addr += ":25565"; }
         String ver = Game.version() == null ? "" : Game.version();
         String loader = MainMenu.loader();
-        String cape = me.isEmpty() ? null : Wardrobe.ownCape(me);
-        String[] cos = me.isEmpty() ? null : Wardrobe.ownLook(me);
+        String cape = me.isEmpty() ? null : Wardrobe.ownCape(plain(me));
+        String[] cos = me.isEmpty() ? null : Wardrobe.ownLook(plain(me));
         List<Object> cl = new ArrayList<>();
         if (cos != null) for (String c : cos) cl.add(c == null ? "" : c);
         Map<String, Object> look = new LinkedHashMap<>();
@@ -475,7 +475,11 @@ public final class Party {
     private static final class Skin { int state; boolean slim; Net.Req req; BufferedImage img; }
     private static final Map<String, Skin> skins = new HashMap<>();
 
+    /** Dashless lower-case uuid (the launcher and the game may hand either form). */
+    private static String plain(String uuid) { return uuid == null ? "" : uuid.replace("-", "").toLowerCase(Locale.ROOT); }
+
     private static void skin(String uuid) {
+        uuid = plain(uuid);
         if (!uuid.matches("[0-9a-f]{32}")) return;
         Skin s = skins.get(uuid);
         if (s == null) skins.put(uuid, s = new Skin());
@@ -631,14 +635,32 @@ public final class Party {
         int rh = Math.round(Math.max(PH, Math.min(640, px)) / 40) * 40;
         if (m == null) sk = ghost();
         else {
-            Skin s = skins.get(m.uuid);
-            if (s == null || s.img == null) { skin(m.uuid); sk = fallbackSkin(m.uuid); sig.append("fb"); }
+            // you: the launcher's own state (wardrobe/state.json) first: your skin, cape and cosmetics show without a
+            // party, without the party service and the moment you apply a new look
+            String uuid = plain(m.uuid);
+            BufferedImage ownSkin = null;
+            String cape = m.cape;
+            String[] look = m.cos;
+            if (m.me) {
+                String own = Wardrobe.ownUuid();
+                if (uuid.isEmpty()) uuid = !own.isEmpty() ? own : MainMenu.accUuid() == null ? "" : MainMenu.accUuid();
+                if (!own.isEmpty() && own.equals(uuid)) {
+                    ownSkin = Wardrobe.ownSkin();
+                    String oc = Wardrobe.ownCape(uuid);
+                    if (oc != null && !oc.isEmpty()) cape = oc;
+                    String[] ol = Wardrobe.ownLook(uuid);
+                    if (ol != null) { look = new String[ol.length]; for (int i = 0; i < ol.length; i++) look[i] = ol[i] == null ? "" : ol[i]; }
+                }
+            }
+            Skin s = skins.get(uuid);
+            if (ownSkin != null) { sk = upgrade(ownSkin); slim = Wardrobe.ownSlim(); sig.append("own").append(System.identityHashCode(ownSkin)).append(slim); }
+            else if (s == null || s.img == null) { skin(uuid); sk = fallbackSkin(uuid); sig.append("fb"); }
             else { sk = s.img; slim = s.slim; sig.append(System.identityHashCode(s.img)).append(slim); }
-            if (!m.cape.isEmpty()) { capeImg = Capes.previewImage(m.cape); sig.append(capeImg != null ? m.cape : "-"); }
+            if (!cape.isEmpty()) { capeImg = Capes.previewImage(cape); sig.append(capeImg != null ? cape : "-"); }
             cos = new Cosmetics.Item[Cosmetics.SLOTS.length];
-            for (int i = 0; i < cos.length && i < m.cos.length; i++) {
-                cos[i] = m.cos[i].isEmpty() ? null : Cosmetics.preview(m.cos[i], Cosmetics.SLOTS[i]);
-                sig.append(',').append(cos[i] == null ? "" : m.cos[i]);
+            for (int i = 0; i < cos.length && i < look.length; i++) {
+                cos[i] = look[i].isEmpty() ? null : Cosmetics.preview(look[i], Cosmetics.SLOTS[i]);
+                sig.append(',').append(cos[i] == null ? "" : look[i]);
             }
         }
         boolean moving = m != null && !Config.calm() && Player3D.animated(cos);
