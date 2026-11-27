@@ -388,14 +388,14 @@ public final class Gfx {
 
     // ---------------------------------------------------------------- images (RGBA textures: our own GL objects only)
 
-    private static final int TEX_MAX = 48;
-    private static final long TEX_BYTES = 64L << 20;
+    private static final int TEX_MAX = 256;
+    private static final long TEX_BYTES = 160L << 20; // lyric word sprites (LyricSprites, own cap 48 MB) share this
 
     private static final class Tex {
         int id, w, h;
     }
 
-    /** key -> texture, in access order (least recently drawn first): past 48 textures / 64 MB the oldest are freed. */
+    /** key -> texture, in access order (least recently drawn first): past 256 textures / 160 MB the oldest are freed. */
     private static final LinkedHashMap<String, Tex> texs = new LinkedHashMap<>(16, 0.75f, true);
     private static long texBytes;
     /** texture bound on unit 1 in this frame (0 = none yet) */
@@ -719,6 +719,13 @@ public final class Gfx {
         int px = freePx(size);
         float w = 0;
         for (int i = 0; i < str.length(); i++) { char c = str.charAt(i); w += advFree(f, px, c, glyph(f, px, c)); }
+    /** The java.awt face behind face index f (theme slots resolved as text draws them), for baking text off the render thread. */
+    public static Font awtFont(int f) {
+        f = hf(f);
+        Font fo = f >= 0 && f < fonts.length ? fonts[f] : null;
+        return fo != null ? fo : fonts[SEMI];
+    }
+
         return w * size;
     }
 

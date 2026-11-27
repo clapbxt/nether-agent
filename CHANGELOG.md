@@ -4,6 +4,14 @@ What changed in each client release, newest first. Add a line under **Unreleased
 change: what a player notices, not how it was done. At release, move the lines under the new version.
 
 ## Unreleased
+- Four new title panoramas from real cube captures: Sakura (sharper, replaces the old one), Lookout, Meadow and Dusk.
+- World lyrics are drawn as ready-made word images: far smoother frame rate, no shimmer while words move, and every
+  text style keeps its look at any size.
+- Sky lyrics now sit in the sky itself on 1.21.2 - 26.1: hills, trees and clouds pass in front of them, and they stay
+  put in the sky as you walk. Air, Row and Lines words fade when a wall or tree is between you and them.
+- The 3D lyrics panel opens a white bubble round you, with the panel on its wall, like stepping into a settings room.
+  It moves with you instead of drifting, clicks never hit the hidden world, Esc leaves, and a new 3D panel distance
+  setting (default a little further than before) sets how far away it stands.
 - Fixed: your cape now shows on your character in the party lobby.
 - The 3D lyrics panel is a solid slab with visible edges from the side and a plain back, and it no longer vanishes
   while chat is open.

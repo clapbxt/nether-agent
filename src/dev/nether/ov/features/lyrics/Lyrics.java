@@ -158,7 +158,8 @@ public final class Lyrics extends Module {
         add(Setting.key("laterKey", "Nudge later key", -1).hint("+100 ms, saved for the current song.").when(sync));
         add(Setting.key("earlierKey", "Nudge earlier key", -1).hint("-100 ms, saved for the current song.").when(sync));
         add(Setting.action("refetch", "Search lyrics again", "SEARCH", this::refetch).hint("Recheck local lyrics and refresh online results for the current song.").when(sync));
-        add(Setting.key("panelKey", "3D lyric panel key", 79).hint("Default O. Spawn the floating player. Nearby toggles it; far away brings it to you."));
+        add(Setting.key("panelKey", "3D lyric panel key", 79).hint("Default O. Opens the lyric player in a white bubble round you; press again (or Esc) to leave."));
+        add(Setting.slider("panelDist", "3D panel distance", 2.5, 8, 0.1, 4.2).hint("How far the panel stands on the bubble's wall. Further makes it smaller in view."));
 
         java.util.function.BooleanSupplier profiles = section("Profiles & reset");
         add(Setting.choice("profileSlot", "Look slot", "1", "1", "2", "3").when(profiles));
@@ -314,6 +315,8 @@ public final class Lyrics extends Module {
     @Override public void tick() {
         migrate();
         if (!enabled() && LyricsWorldPanel.visible()) LyricsWorldPanel.hide();
+        if (enabled() && mode() == 1 && skyPassFn == null) { skyPassFn = this::skyPassRun; dev.nether.ov.features.visual.CustomSky.extra = skyPassFn; }
+        if (skyPassFn != null) dev.nether.ov.features.visual.CustomSky.installPass();
         if (!live()) return;
         Media.keep();
         Media.State s = Media.cur;
@@ -1543,16 +1546,6 @@ public final class Lyrics extends Module {
     private static final double UNIT = 0.056; // blocks per font pixel at size 1
     private static final float GLYPH = 9, REF = 16; // font px of a line; reference text px (2 per font px)
     private static final String VOWELS = "aeiouyáéíóúýěůäöüåøæàèìòùâêîôûãõ";
-    private static final float[][] GLOW = new float[16][], RING = new float[8][];
-    static {
-        for (int i = 0; i < 8; i++) {
-            double a = i * Math.PI / 4;
-            GLOW[2 * i] = new float[] {(float) (Math.cos(a) * 0.6), (float) (Math.sin(a) * 0.6)};
-            GLOW[2 * i + 1] = new float[] {(float) (Math.cos(a) * 1.3), (float) (Math.sin(a) * 1.3)};
-            RING[i] = new float[] {(float) Math.cos(a), (float) Math.sin(a)};
-        }
-    }
-
     /** Words (or a line) put in the world: wall-clock time each word is sung and held until, spot, anchor (Follow). */
     private static final class Piece {
         String[] w;
@@ -1570,6 +1563,13 @@ public final class Lyrics extends Module {
         /** Screen: at (sx, sy) of the screen plus (ox, oy) font px, not in the world */
         boolean onScreen;
         float sx, sy, ox, oy;
+        /** Sky: placed by direction from where you stood, carried along with the camera (no parallax, like the sun) */
+        boolean sky;
+        double ex, ey, ez;
+        /** squared distance this frame (draw order); blocks between you and the word: target and eased 0..1, last check */
+        double dd;
+        float occ, occT;
+        long occAt;
     }
     private static final class Pending { String w; long at, until, fadeAt; int i; boolean stamped; }
 
@@ -1722,7 +1722,7 @@ public final class Lyrics extends Module {
             p = scatter(eye, c[4], c[3], note, rnd.nextInt(8), now, life, false, c, W, H);
         }
         Piece q = addPiece(note, at, until, p, eye, 1, c, W, H);
-        if (wStyle().equals("Sky")) q.fit = skyFit();
+        if (wStyle().equals("Sky")) { q.fit = skyFit(); q.sky = true; }
         q.fadeAt = now + life;
         q.stamped = false;
         while (pieces.size() > 12) pieces.remove(0);
@@ -1896,7 +1896,7 @@ public final class Lyrics extends Module {
         for (int i = 0; i < ws.length; i++) {
             double ox = xy[i][0] * k, oy = -xy[i][1] * k;
             Piece p = addPiece(new String[] {ws[i]}, new long[] {at[i]}, new long[] {until[i]}, new double[] {mid[0] + right[0] * ox, mid[1] + oy, mid[2] + right[2] * ox}, eye, 1, c, W, H);
-            p.fit = fit; p.stamped = stamped; p.line = idx; p.order = i;
+            p.fit = fit; p.stamped = stamped; p.line = idx; p.order = i; p.sky = true;
         }
     }
 
@@ -2112,6 +2112,7 @@ public final class Lyrics extends Module {
 
     private double[] pos(Piece p, boolean follow) {
         if (p.pr != null) return new double[] {p.x, p.y, p.z}; // printed on a wall: stays on it
+        if (p.sky) return new double[] {p.x - p.ex + camX, p.y - p.ey + camY, p.z - p.ez + camZ};
         if (bool("viewLock")) {
             double[] d = dir(camPitch + p.viewPitch, camYaw + p.viewYaw);
             return new double[] {camX + d[0] * p.viewDist, camY + d[1] * p.viewDist, camZ + d[2] * p.viewDist};
@@ -2141,6 +2142,7 @@ public final class Lyrics extends Module {
         p.viewYaw = angle(targetYaw - c[3]); p.viewPitch = targetPitch - c[4];
         boolean nf = Double.isNaN(fx);
         p.ax = nf ? eye[0] : fx; p.ay = nf ? eye[1] : fy; p.az = nf ? eye[2] : fz;
+        p.ex = eye[0]; p.ey = eye[1]; p.ez = eye[2];
         p.fit = fit;
         p.halfW = (float) (Math.toDegrees(Math.atan(width * fit / (2 * dist))) + 2);
         p.halfH = (float) (Math.toDegrees(Math.atan(GLYPH * u * fit / (2 * dist))) + 2);
@@ -2227,9 +2229,17 @@ public final class Lyrics extends Module {
         // LyricsFlow's idle bob: words breathe up and down a little (Air and Screen 0.04 em, Sky 0.02 em, Walls none)
         float bobEm = f.calm ? 0 : (st.equals("Air") || st.equals("Screen") ? 0.04f : st.equals("Sky") ? 0.02f : 0) * Math.max(0.25f, f.bounce / 0.6f);
         double secs = (System.nanoTime() - NS0) / 1e9;
-        ArrayList<Piece> order = new ArrayList<>(pieces.size());
-        for (Piece p : pieces) if (!p.onScreen) order.add(p);
-        order.sort((a, b) -> { double[] p = pos(a, follow), q = pos(b, follow); return Double.compare(d2(q[0], q[1], q[2], c[0], c[1], c[2]), d2(p[0], p[1], p[2], c[0], c[1], c[2])); });
+        // Sky words go down in the sky pass (behind terrain, trees and clouds) where the game has one; elsewhere here
+        boolean skyPass = pass == 1, skyDone = pass == 0 && System.nanoTime() - skyPassNs < 80_000_000L;
+        order.clear();
+        for (Piece p : pieces) {
+            if (p.onScreen || (p.sky ? skyDone : skyPass)) continue;
+            double[] q = pos(p, follow);
+            p.dd = d2(q[0], q[1], q[2], c[0], c[1], c[2]);
+            order.add(p);
+        }
+        order.sort((a, b) -> Double.compare(b.dd, a.dd));
+        double[] eye = {c[0], c[1], c[2]}, dir = new double[3];
         for (Piece p : order) {
             float[] a = anim(p, now, f);
             if (a == null) continue;
@@ -2238,12 +2248,24 @@ public final class Lyrics extends Module {
             double[] q = pos(p, follow);
             if (!Project.to(q[0], q[1] + a[3] + bob, q[2]) || Project.depth < 1 || Math.abs(Project.nx) > 1.3 || Math.abs(Project.ny) > 1.3) continue;
             float alpha = a[0] * Math.min(1, (float) (Project.depth - 1) / 1.5f); // walked into: fades instead of filling the screen
+            if (p.sky) alpha *= 0.94f;
+            else { // behind a wall or a tree: mostly hidden, as a thing in the world would be (a ray every 120 ms, eased)
+                if (now - p.occAt > 120) {
+                    p.occAt = now;
+                    double d = Math.sqrt(p.dd);
+                    for (int i = 0; i < 3; i++) dir[i] = (q[i] - eye[i]) / Math.max(1e-6, d);
+                    p.occT = d > 1 && cast(eye, dir, d - 0.6) != null ? 1 : 0;
+                }
+                p.occ += (p.occT - p.occ) * Math.min(1, Gfx.dt * 9);
+                alpha *= 1 - 0.82f * p.occ;
+            }
             if (alpha < 0.02f) continue;
             float ax = Project.sx(W) * Gfx.base, ay = Project.sy(H) * Gfx.base; // framebuffer px
             double fpx = u * p.fit * a[1] * fbH / (2 * Project.depth * tanY); // framebuffer px per font px
             if (fpx < 0.25) continue;
             drawPiece(p, now, f, ax, ay, fpx, alpha, a[2]);
         }
+        if (skyPass) return;
         double sfpx = 15 * num("worldSize") * Game.guiScale(fbW, fbH) / GLYPH; // Screen: LyricsFlow's 15 GUI px line, in framebuffer px per font px
         for (Piece p : pieces) {
             if (!p.onScreen) continue;
@@ -2252,6 +2274,42 @@ public final class Lyrics extends Module {
             double bob = bobEm == 0 ? 0 : Math.sin(secs * 1.6 + p.order * 0.9 + p.seed) * bobEm * GLYPH;
             float x = (float) (p.sx * fbW + p.ox * sfpx), y = (float) (p.sy * fbH + (p.oy - a[3] / u - bob) * sfpx);
             drawPiece(p, now, f, x, y, sfpx * a[1], a[0], a[2]);
+        }
+    }
+
+    private final ArrayList<Piece> order = new ArrayList<>();
+    /** 0: the overlay (end of frame); 1: the sky pass (Sky words only, before terrain) */
+    private int pass;
+    private long skyPassNs;
+    private Runnable skyPassFn;
+
+    /**
+     * Sky pass (1.21.2 - 26.1, right after the game draws its sky): Sky words into the game's own frame before the
+     * terrain, so hills, trees and clouds pass in front of them and they read as sky writing, not as text over the
+     * world. Elsewhere (1.8.9, 1.12.2, 26.3+, the Nether) the overlay draws them at the end of the frame instead.
+     */
+    private void skyPassRun() {
+        if (!enabled() || mode() != 1 || !wStyle().equals("Sky") || pieces.isEmpty() || Game.level() == null) return;
+        int[] t = dev.nether.ov.features.visual.CustomSky.target();
+        if (t == null) return;
+        double[] c = Game.camera();
+        if (c == null) return;
+        dev.nether.ov.platform.GlBackend.targetFb = t[0];
+        float prev = Gfx.s;
+        Gfx.begin(t[1], t[2]);
+        try {
+            Gfx.s = Gfx.base;
+            float W = t[1] / Gfx.s, H = t[2] / Gfx.s;
+            if (!Project.begin(W, H)) return;
+            camX = c[0]; camY = c[1]; camZ = c[2];
+            pass = 1;
+            draw(ms(), c, t[1], t[2], W, H);
+            skyPassNs = System.nanoTime();
+        } finally {
+            pass = 0;
+            Gfx.s = prev;
+            Gfx.end();
+            dev.nether.ov.platform.GlBackend.targetFb = 0;
         }
     }
 
@@ -2611,87 +2669,55 @@ public final class Lyrics extends Module {
     }
 
     /**
-     * Glow halo, motion-blur smears and a dark outline ring, then the word on top; centre and size P in framebuffer px,
-     * unsnapped. Neon: the halo in the two glow colours and the word split into them either side of a bright core.
-     * Clean: no halo, a soft drop shadow.
+     * One word, centre (cx, cy) and size P in framebuffer px, unsnapped. Its look (halo, outline, shadow, neon split,
+     * retro extrusion) is a baked sprite ({@link LyricSprites}): one quad for the effects, one for the word, plus a copy
+     * or two for the animated styles (Echo, Glitch) and motion blur. Neon: the halo in the two glow colours and the word
+     * split into them either side of a bright core. Clean: no halo, a soft drop shadow. Chroma: the rainbow slides over time.
      */
     private void word(String s, float cx, float cy, float P, float a, float blur, int col, float glow, float outline, float boost) {
-        int fo = font();
+        long ns = System.nanoTime();
+        if (ns - pumpNs > 4_000_000L) { pumpNs = ns; LyricSprites.pump(); }
         String style = plainWords ? "Glow" : str("textStyle");
-        boolean neon = style.equals("Neon"), clean = style.equals("Clean"), chroma = style.equals("Chroma"), heavy = style.equals("Outline"),
-            retro = style.equals("Retro"), echo = style.equals("Echo"), glitch = style.equals("Glitch");
-        float k = P / REF, x = cx - Gfx.widthFree(fo, P, s) / 2;
-        int ga1 = glowColor(), ga2 = glowColor2();
-        double secs = (System.nanoTime() - NS0) / 1e9;
+        boolean neon = style.equals("Neon"), chroma = style.equals("Chroma"), echo = style.equals("Echo"), glitch = style.equals("Glitch");
+        double secs = (ns - NS0) / 1e9;
         if (chroma) col = hue((float) (secs / 2.4 + cx * 0.0007));
-        if (clean) { Gfx.textFree(fo, P, x + 1.2f * k, cy + 1.8f * k, Gfx.a(0xFF05070C, a * 0.5f), s); glow = 0; }
-        if (heavy) glow *= 0.35f;
-        if (glow > 0.02f) {
-            float ga = a * (0.1f + 0.05f * glow) * boost, spread = 2 * (0.5f + 0.5f * glow) * (0.75f + 0.25f * boost) * k;
-            if (ga > 0.02f) {
-                if (neon) for (int i = 0; i < GLOW.length; i++) { float[] o = GLOW[i]; Gfx.textFree(fo, P, x + o[0] * spread * 1.6f, cy + o[1] * spread * 1.6f, Gfx.a(i % 2 == 0 ? ga1 : ga2, ga * 0.9f), s); }
-                else {
-                    if (bool("twoTone") && !chroma) for (int i = 0; i < GLOW.length; i++) { float[] o = GLOW[i]; int gc = i % 2 == 0 ? ga1 : ga2; Gfx.textFree(fo, P, x + o[0] * spread * 1.5f, cy + o[1] * spread * 1.5f, Gfx.a(gc, ga * 0.75f), s); }
-                    for (float[] o : GLOW) Gfx.textFree(fo, P, x + o[0] * spread, cy + o[1] * spread, Gfx.a(col, ga), s);
-                }
-            }
+        LyricSprites.Look l = look;
+        l.face = font(); l.style = style; l.glow = Math.round(glow * 20) / 20f; l.outline = Math.round(outline * 20) / 20f;
+        l.col = chroma ? 0xFFFFFFFF : col | 0xFF000000; l.ga1 = glowColor(); l.ga2 = glowColor2(); l.twoTone = bool("twoTone") && !chroma;
+        LyricSprites.Sprite sp = LyricSprites.get(s, l, P);
+        if (sp == null) { // first frames of a new word, while it bakes: plain
+            Gfx.textFree(l.face, P, cx - Gfx.widthFree(l.face, P, s) / 2, cy, Gfx.a(col, a), s);
+            return;
         }
+        int fxTint = chroma ? Gfx.a(col, a) : Gfx.a(0xFFFFFFFF, a);
+        LyricSprites.fx(sp, cx, cy, P, fxTint);
+        if (boost > 1.01f && glow > 0.02f) LyricSprites.fx(sp, cx, cy, P, Gfx.a(0xFFFFFFFF, a * Math.min(1, (boost - 1) * 0.8f))); // a held note glows brighter
+        float k = P / REF;
         if (blur > 0.01f) for (int j = 1; j <= 2; j++) {
             int bc = Gfx.a(col, a * 0.3f / j);
             float dx = 2 * j * 1.6f * blur * k;
-            Gfx.textFree(fo, P, x - dx, cy, bc, s);
-            Gfx.textFree(fo, P, x + dx, cy, bc, s);
-        }
-        if (heavy) { // a heavy dark edge: reads over snow, sky and lava alike
-            for (float[] o : RING) {
-                Gfx.textFree(fo, P, x + o[0] * 1.2f * k, cy + o[1] * 1.2f * k, Gfx.a(0xFF05060A, a * 0.9f), s);
-                Gfx.textFree(fo, P, x + o[0] * 2.3f * k, cy + o[1] * 2.3f * k, Gfx.a(0xFF05060A, a * 0.55f), s);
-            }
-        } else if (outline > 0.02f) {
-            int in = Gfx.a(0xFF070A14, a * 0.34f * outline), out = Gfx.a(0xFF070A14, a * 0.16f * outline);
-            for (float[] o : RING) {
-                Gfx.textFree(fo, P, x + o[0] * 1.1f * k, cy + o[1] * 1.1f * k, in, s);
-                Gfx.textFree(fo, P, x + o[0] * 2.2f * k, cy + o[1] * 2.2f * k, out, s);
-            }
-        }
-        if (retro) { // extruded down-right in the second glow colour, darkening towards the back, with a rim of the first
-            float o = Math.max(0.6f, P * 0.028f);
-            for (int j = 6; j >= 1; j--) Gfx.textFree(fo, P, x + o * j, cy + o * j, Gfx.a(Gfx.mix(ga2, 0xFF000000, 0.15f + 0.06f * j), a), s);
-            for (float[] r : RING) Gfx.textFree(fo, P, x + r[0] * 0.8f * k, cy + r[1] * 0.8f * k, Gfx.a(ga1, a * 0.5f), s);
+            LyricSprites.body(sp, cx - dx, cy, P, bc);
+            LyricSprites.body(sp, cx + dx, cy, P, bc);
         }
         if (echo) { // two copies trailing above, in the glow colours, breathing a little
-            float sp = P * (0.26f + 0.04f * (float) Math.sin(secs * 2.2 + cx * 0.01));
-            Gfx.textFree(fo, P, x, cy - sp * 2, Gfx.a(ga2, a * 0.18f), s);
-            Gfx.textFree(fo, P, x, cy - sp, Gfx.a(ga1, a * 0.36f), s);
+            float e = P * (0.26f + 0.04f * (float) Math.sin(secs * 2.2 + cx * 0.01));
+            LyricSprites.body(sp, cx, cy - e * 2, P, Gfx.a(l.ga2, a * 0.18f));
+            LyricSprites.body(sp, cx, cy - e, P, Gfx.a(l.ga1, a * 0.36f));
         }
         if (glitch) { // red / cyan split that jumps wider for a moment every so often
             long slot = (long) (secs * 11) + (long) (cx * 0.37);
             float jump = ((slot * 0x9E3779B97F4A7C15L) >>> 59) == 0 ? 3.2f : 1;
             float o = Math.max(0.8f, P * 0.045f) * jump, dy = jump > 1 ? P * 0.04f : 0;
-            Gfx.textFree(fo, P, x - o, cy + dy, Gfx.a(0xFFFF2E4D, a * 0.7f), s);
-            Gfx.textFree(fo, P, x + o, cy - dy, Gfx.a(0xFF2EE6FF, a * 0.7f), s);
+            LyricSprites.body(sp, cx - o, cy + dy, P, Gfx.a(0xFFFF2E4D, a * 0.7f));
+            LyricSprites.body(sp, cx + o, cy - dy, P, Gfx.a(0xFF2EE6FF, a * 0.7f));
             col = Gfx.mix(col, 0xFFFFFFFF, 0.45f);
         }
-        if (neon) {
-            float o = Math.max(0.8f, P * 0.055f), sa = a * (0.55f + 0.35f * Math.min(1, glow + 0.3f)) * (1 - 0.55f * blur);
-            Gfx.textFree(fo, P, x - o, cy + o * 0.5f, Gfx.a(ga1, sa), s);
-            Gfx.textFree(fo, P, x + o, cy - o * 0.5f, Gfx.a(ga2, sa), s);
-            col = Gfx.mix(col, 0xFFFFFFFF, 0.2f);
-        }
-        if (chroma) { chromaText(fo, P, x, cy, a * (1 - 0.55f * blur), s, secs); return; }
-        Gfx.textFree(fo, P, x, cy, Gfx.a(col, a * (1 - 0.55f * blur)), s);
+        if (neon) col = Gfx.mix(col, 0xFFFFFFFF, 0.2f);
+        LyricSprites.body(sp, cx, cy, P, Gfx.a(col, a * (1 - 0.55f * blur)));
     }
 
-    /** Chroma (LyricsFlow): each letter its own hue, the rainbow sliding along the word over time. */
-    private static void chromaText(int fo, float P, float x, float cy, float a, String s, double secs) {
-        float pen = x;
-        for (int i = 0; i < s.length(); i++) {
-            String ch = s.substring(i, i + 1);
-            float w = Gfx.widthFree(fo, P, ch);
-            if (!ch.equals(" ")) Gfx.textFree(fo, P, pen, cy, Gfx.a(hue((float) (secs / 2.4 + i * 0.07)), a), ch);
-            pen += w;
-        }
-    }
+    private final LyricSprites.Look look = new LyricSprites.Look();
+    private long pumpNs;
 
     private static int hue(float h) { return 0xFF000000 | (java.awt.Color.HSBtoRGB(h - (float) Math.floor(h), 0.62f, 1f) & 0xFFFFFF); }
 }

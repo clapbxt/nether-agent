@@ -49,8 +49,37 @@ public final class CustomSky extends Module {
         if (!installed && available()) {
             installed = true;
             if (Game.legacy()) dev.nether.agent.Hook.skyDraw = CustomSky::draw;
-            else dev.nether.agent.Hook.skyModernDraw = CustomSky::drawModern;
+            else installPass();
         }
+    }
+
+    /** Other things drawn in the sky pass after the sky layers (lyrics' Sky words); null = none. */
+    public static volatile Runnable extra;
+    private static boolean passOn;
+
+    /** 1.21.2 - 26.1: the sky pass hook (custom sky layers, then {@link #extra}), once; nothing on other versions. */
+    public static void installPass() {
+        if (passOn || Game.legacy() || !Game.fabric() || !dev.nether.agent.Hook.skyHooked) return;
+        passOn = true;
+        dev.nether.agent.Hook.skyModernDraw = CustomSky::pass;
+    }
+
+    private static void pass() {
+        if (M.enabled()) drawModern();
+        Runnable e = extra;
+        if (e != null) try { e.run(); } catch (Throwable t) { extra = null; System.out.println("[nether-agent] sky pass extra off: " + t); }
+    }
+
+    /**
+     * The game's main render target for drawing into during the sky pass: {our framebuffer on its colour texture (or
+     * the bound one on 1.21.2 - 1.21.4), width, height}; null when unknown.
+     */
+    public static int[] target() {
+        Object rt = Game.call(Game.mc(), "method_1522"), ct = rt == null ? null : Game.call(rt, "method_30277"), idO = ct == null ? null : Game.call(ct, "method_68427");
+        Object wO = rt == null ? null : Game.fld(rt, "field_1482"), hO = rt == null ? null : Game.fld(rt, "field_1481");
+        if (!(wO instanceof Integer) || !(hO instanceof Integer)) return null;
+        int fb = idO instanceof Integer ? fbo((Integer) idO) : GL11.glGetInteger(0x8CA6);
+        return fb == 0 ? null : new int[] {fb, (Integer) wO, (Integer) hO};
     }
 
     // ---------------------------------------------------------------- layers
