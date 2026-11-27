@@ -281,7 +281,7 @@ public final class Menu {
         capture = null;
     }
 
-    /** Opens the menu straight on a module's settings page (the 3D lyric panel's MENU button). */
+    /** Opens the menu straight on a module's settings page (the lyrics settings key). */
     public static void openModule(String id) {
         Input.setMenu(true);
         if (!Input.menuOpen) return;

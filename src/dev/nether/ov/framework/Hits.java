@@ -9,7 +9,7 @@ import dev.nether.ov.ui.Gfx;
  * the next draw through {@link #clicked}. Presses only land while the cursor is free: our menu is open and its panel did
  * not use the click, or a game screen is up (chat, inventory). A press that lands is swallowed, its release too, so the
  * game never sees it. In plain gameplay (cursor grabbed) nothing is routed: a widget can never take an attack or use
- * click. Frames without widgets cost one comparison. (The 3D lyric panel keeps its own crosshair-aimed hit list.)
+ * click. Frames without widgets cost one comparison.
  */
 public final class Hits {
     private Hits() {}
@@ -34,7 +34,7 @@ public final class Hits {
     }
 
     /** The cursor may interact with HUD widgets: our menu or a game screen holds it. */
-    public static boolean free() { return Input.menuOpen || Input.worldGuiOpen || Game.screenOpen(); }
+    public static boolean free() { return Input.menuOpen || Game.screenOpen(); }
 
     /** Cursor position in framebuffer pixels. */
     private static float mx() { return (float) (Input.mx * Gfx.fbW / Input.ww); }

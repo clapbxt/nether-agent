@@ -1,2 +1,2 @@
-/** Synced lyrics: the HUD, the top bar, the settings studio and the 3D world panel. */
+/** Synced lyrics: the HUD, the top bar, and the settings studio. */
 package dev.nether.ov.features.lyrics;

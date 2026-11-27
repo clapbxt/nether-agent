@@ -3,7 +3,6 @@ package dev.nether.ov.framework;
 import java.util.ArrayList;
 
 import dev.nether.ov.features.hud.HitTracker;
-import dev.nether.ov.features.lyrics.LyricsWorldPanel;
 import dev.nether.ov.features.social.Party;
 import dev.nether.ov.features.social.PartyPick;
 import dev.nether.ov.game.Game;
@@ -36,7 +35,6 @@ public final class Input {
     private static final int[] clickN = new int[2];
 
     public static boolean menuOpen;
-    public static boolean worldGuiOpen;
     /** The overlay died: every filter passes everything through, vanilla input is untouched. */
     public static volatile boolean dead;
     /** A printable menu key toggled the menu: its character event (which follows the key event) must not be typed. */
@@ -94,14 +92,12 @@ public final class Input {
     // ---------------------------------------------------------------- menu open/close
 
     /** The char event of the key just pressed must not type into what it opened (waypoint dialog). */
-    static void eatChar() { eatCharAt = System.currentTimeMillis(); }
+    public static void eatChar() { eatCharAt = System.currentTimeMillis(); }
 
     /** a modifier menu key is down / something else was pressed meanwhile / its press was kept from the game */
     private static boolean modHeld, modUsed, modEaten;
 
     public static void setMenu(boolean on) {
-        if (on && worldGuiOpen) setWorldGui(false);
-        if (!on && worldGuiOpen) setWorldGui(false);
         if (on == menuOpen || window == 0) return;
         if (on) {
             // If focus changed while Escape was held, some window systems never deliver its release. A fresh menu
@@ -119,15 +115,6 @@ public final class Input {
             chars.setLength(0);
             Menu.closed();
         }
-    }
-
-    static void setWorldGui(boolean on) {
-        if (on && menuOpen) return;
-        if (on == worldGuiOpen) return;
-        worldGuiOpen = on;
-        if (window == 0) { if (!on) LyricsWorldPanel.inputClosed(); return; }
-        if (on) Plat.cur.opened();
-        else { Plat.cur.closed(); clickL = clickR = upL = false; LyricsWorldPanel.inputClosed(); }
     }
 
     // ---------------------------------------------------------------- filters (true = swallow)
@@ -149,12 +136,6 @@ public final class Input {
         if (!menuOpen && (MainMenu.title || MainMenu.pause || Party.capturing()) && Party.key(key, action)) return true;
         // the party leader's pick on the game's world / server list: Enter selects for the party instead of starting
         if (!menuOpen && PartyPick.key(key, action)) return true;
-        if (worldGuiOpen) {
-            if (Menu.capturing() && action == PRESS) { Menu.capture(key); return true; }
-            if (key == 256 && action == PRESS) { LyricsWorldPanel.finishDrag(); return true; }
-            if (LyricsWorldPanel.dragging()) return Modules.onKey(key, action); // movement and gameplay keys keep working during a border drag
-            return true;
-        }
         // Esc with nothing left to step back from closes the menu here, like the menu key (not a frame later, so the
         // game never sees its repeats or release and the cursor is handed back at once)
         if (key == 256 && escHeld) { if (action == RELEASE) escHeld = false; return true; }
@@ -186,13 +167,6 @@ public final class Input {
             keyEv.add(new int[] {key, action});
             return true;
         }
-        // the 3D lyric panel's bubble works like a screen: no walking, dropping, hotbar or other binds; releases, the
-        // F keys (screenshot, debug, fullscreen) and the panel key still go through, Esc leaves
-        if (LyricsWorldPanel.blocking()) {
-            if (action == RELEASE || key >= 290 && key <= 301 || key == (int) Modules.LYRICS.num("panelKey")) return Modules.onKey(key, action);
-            if (key == 256 && action == PRESS) LyricsWorldPanel.escape();
-            return true;
-        }
         return Modules.onKey(key, action);
     }
 
@@ -203,21 +177,11 @@ public final class Input {
         events++;
         window = w;
         if (dead) return false;
-        if (b < 0 || b >= btn.length) return menuOpen || worldGuiOpen;
+        if (b < 0 || b >= btn.length) return menuOpen;
         btn[b] = action == PRESS;
         if (action == PRESS && modHeld) modUsed = true; // shift-click
         // middle / side buttons bind like keys (code 400 + button); left and right stay the menu's own clicks
         if (b >= 2 && action == PRESS && Menu.capturing()) { Menu.capture(MOUSE + b); return true; }
-        if (worldGuiOpen) {
-            if (action == PRESS && LyricsWorldPanel.pointerPress(b)) ourBtn[b] = true;
-            if (action != PRESS) {
-                boolean dragEnded = LyricsWorldPanel.pointerRelease(b);
-                if (ourBtn[b]) ourBtn[b] = false;
-                if (dragEnded) return true;
-            }
-            return true;
-        }
-        if (!menuOpen && action == PRESS && LyricsWorldPanel.visible() && LyricsWorldPanel.pointerPress(b)) { ourBtn[b] = true; return true; }
         if (action == PRESS && !menuOpen && Party.button(b)) return true;
         if (menuOpen) {
             if (action == PRESS) {
@@ -244,8 +208,6 @@ public final class Input {
         events++;
         if (dead) return false;
         if (menuOpen) { scrollY += y; return true; }
-        if (worldGuiOpen) { LyricsWorldPanel.scroll(y); return true; }
-        if (!menuOpen && LyricsWorldPanel.scroll(y)) return true;
         if (MainMenu.title || (MainMenu.pause && Party.panelOpen())) { Party.wheel += (float) y; return true; }
         return Modules.onScroll(y);
     }
@@ -257,7 +219,7 @@ public final class Input {
             eatCharAt = 0;
             if (eat) return true;
         }
-        if (!menuOpen && (!worldGuiOpen || LyricsWorldPanel.dragging())) {
+        if (!menuOpen) {
             if (Party.typing && MainMenu.title) { if (cp >= 32 && cp <= 0xFFFF && !Character.isSurrogate((char) cp)) Party.chars(String.valueOf((char) cp)); return true; }
             return false;
         }

@@ -14,7 +14,6 @@ import org.lwjgl.glfw.GLFWMouseButtonCallbackI;
 import org.lwjgl.glfw.GLFWScrollCallback;
 import org.lwjgl.glfw.GLFWScrollCallbackI;
 
-import dev.nether.ov.features.lyrics.LyricsWorldPanel;
 import dev.nether.ov.framework.Input;
 
 import dev.nether.agent.Hook;
@@ -136,7 +135,7 @@ public final class InputGlfw extends Plat {
             Input.window = w;
             Input.mx = x;
             Input.my = y;
-            if (Input.menuOpen || Input.worldGuiOpen) return;
+            if (Input.menuOpen) return;
             boolean shift = Input.gameMode == Input.DISABLED;
             fx = shift ? x + offX : x;
             fy = shift ? y + offY : y;
@@ -206,19 +205,19 @@ public final class InputGlfw extends Plat {
     static final class Poller implements Hook.Poll {
         @Override public int key(int r, long w, int key) {
             if (Input.dead) return r;
-            if (Input.menuOpen || Input.worldGuiOpen && !LyricsWorldPanel.dragging()) return 0;
+            if (Input.menuOpen) return 0;
             return Input.devOnly ? 0 : r;
         }
 
-        @Override public int btn(int r, long w, int b) { return Input.dead ? r : Input.menuOpen || Input.worldGuiOpen || Input.devOnly ? 0 : r; }
+        @Override public int btn(int r, long w, int b) { return Input.dead ? r : Input.menuOpen || Input.devOnly ? 0 : r; }
 
         @Override public int mode(long w, int mode, int value) {
             if (mode != Input.CURSOR || internal) return value;
             Input.gameMode = value;
-            if (value == Input.DISABLED) { offX = offY = 0; if (!Input.worldGuiOpen) regrabbed = true; }
-            else if (!Input.menuOpen && !Input.worldGuiOpen) { offX = offY = 0; }
+            if (value == Input.DISABLED) { offX = offY = 0; regrabbed = true; }
+            else if (!Input.menuOpen) { offX = offY = 0; }
             if (Input.dead) return value;
-            return Input.menuOpen || Input.worldGuiOpen || Input.devOnly ? Input.NORMAL : value;
+            return Input.menuOpen || Input.devOnly ? Input.NORMAL : value;
         }
     }
 }

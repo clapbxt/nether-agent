@@ -203,9 +203,15 @@ public final class Media {
         if (!"state".equals(t)) return;
         String art = s(m, "art");
         if (!art.isEmpty() && !insideArtDir(art)) art = ""; // only ever read covers the helper wrote into our folder
-        set(new State(s(m, "app"), s(m, "title"), s(m, "artist"), s(m, "album"), art, "playing".equals(s(m, "status")),
+        State n = new State(s(m, "app"), s(m, "title"), s(m, "artist"), s(m, "album"), art, "playing".equals(s(m, "status")),
             d(m, "pos"), d(m, "dur"), d(m, "rate") > 0 ? d(m, "rate") : 1, (long) d(m, "ts"),
-            b(m, "canPlay"), b(m, "canNext"), b(m, "canPrev"), b(m, "canSeek")));
+            b(m, "canPlay"), b(m, "canNext"), b(m, "canPrev"), b(m, "canSeek"));
+        // Some players move the position (a seek, a resume part way through a song) without moving the timestamp it is
+        // "as of": extrapolating from that old timestamp puts every lyric seconds off until the next track change. A new
+        // position under an unchanged timestamp is a position taken just now.
+        State prev = cur;
+        if (prev != null && prev.same(n) && n.playing && prev.ts == n.ts && Math.abs(n.pos - prev.pos) > 0.3) n = n.with(true, n.pos);
+        set(n);
     }
 
     private static void set(State s) {

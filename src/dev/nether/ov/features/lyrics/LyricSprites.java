@@ -4,6 +4,7 @@ import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.LinearGradientPaint;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Shape;
@@ -11,6 +12,7 @@ import java.awt.font.FontRenderContext;
 import java.awt.font.GlyphVector;
 import java.awt.font.LineMetrics;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -24,7 +26,7 @@ import java.util.concurrent.Executors;
 import dev.nether.ov.ui.Gfx;
 
 /**
- * Lyric words as baked sprites. A word in its full look (glow halo, outline, shadow, neon split, retro extrusion) is
+ * Lyric words as baked sprites. A word in its full look (halo, outline, shadow, neon tube, chrome / sunset / hologram fills, sticker border, retro extrusion) is
  * drawn once with java.awt off the render thread into one texture: the effects on top, the plain word in white below.
  * The renderer then puts a word on screen with two to five quads, whatever the style, at any size and position
  * without rounding (no shimmer while it moves), instead of 20-35 glyph runs rasterised at every whole pixel size on the
@@ -60,15 +62,14 @@ final class LyricSprites {
         return t;
     });
 
-    /** Look of a word, everything that changes its pixels. col = glow colour (white for Chroma, tinted per frame). */
+    /** Look of a word, everything that changes its pixels. col = highlight colour, ga1 / ga2 = the two glow colours. */
     static final class Look {
         int face, col, ga1, ga2;
         String style;
         float glow, outline;
-        boolean twoTone;
         String id(String text, int lod) {
             return text + '\u0001' + face + '|' + style + '|' + Math.round(glow * 20) + '|' + Math.round(outline * 20) + '|'
-                + Integer.toHexString(col) + '|' + Integer.toHexString(ga1) + '|' + Integer.toHexString(ga2) + '|' + twoTone + '|' + lod;
+                + Integer.toHexString(col) + '|' + Integer.toHexString(ga1) + '|' + Integer.toHexString(ga2) + '|' + lod;
         }
     }
 
@@ -132,7 +133,7 @@ final class LyricSprites {
 
     private static Look copy(Look l) {
         Look c = new Look();
-        c.face = l.face; c.col = l.col; c.ga1 = l.ga1; c.ga2 = l.ga2; c.style = l.style; c.glow = l.glow; c.outline = l.outline; c.twoTone = l.twoTone;
+        c.face = l.face; c.col = l.col; c.ga1 = l.ga1; c.ga2 = l.ga2; c.style = l.style; c.glow = l.glow; c.outline = l.outline;
         return c;
     }
 
@@ -141,6 +142,16 @@ final class LyricSprites {
 
     /** The white word half of sprite s, tinted. */
     static void body(Sprite s, float cx, float cy, float P, int tint) { quad(s, cx, cy, P, 1, tint); }
+
+    /** A horizontal strip (f0..f1 of the height) of the word half, shifted: the glitch tear. */
+    static void bodySlice(Sprite s, float cx, float cy, float P, int tint, float f0, float f1) {
+        if ((tint >>> 24) < 3) return;
+        float k = P / s.lod, x0 = cx - s.cx * k, y0 = cy - s.cy * k, x1 = x0 + s.w * k;
+        float ya = y0 + s.half * f0 * k, yb = y0 + s.half * f1 * k, va = 0.5f + 0.5f * f0, vb = 0.5f + 0.5f * f1;
+        P8[0] = x0; P8[1] = ya; P8[2] = x1; P8[3] = ya; P8[4] = x1; P8[5] = yb; P8[6] = x0; P8[7] = yb;
+        UV[0] = 0; UV[1] = va; UV[2] = 1; UV[3] = va; UV[4] = 1; UV[5] = vb; UV[6] = 0; UV[7] = vb;
+        Gfx.imageQuad(s.key, P8, UV, tint);
+    }
 
     private static final float[] P8 = new float[8], UV = new float[8];
 
@@ -164,57 +175,107 @@ final class LyricSprites {
         LineMetrics lm = f.getLineMetrics(text, FRC);
         float adv = (float) f.getStringBounds(text, FRC).getWidth(), asc = lm.getAscent(), desc = lm.getDescent();
         float k = lod / 16f;
-        boolean neon = l.style.equals("Neon"), clean = l.style.equals("Clean"), heavy = l.style.equals("Outline"), retro = l.style.equals("Retro");
-        float glow = clean ? 0 : heavy ? l.glow * 0.35f : l.glow;
-        int pad = (int) Math.ceil(lod * (0.22f + 0.28f * glow) + (retro ? lod * 0.2f : 0)) + 2;
+        String st = l.style;
+        boolean neon = st.equals("Neon"), retro = st.equals("Retro"), chrome = st.equals("Chrome"), sunset = st.equals("Sunset"),
+            sticker = st.equals("Sticker"), holo = st.equals("Hologram"), glitch = st.equals("Glitch");
+        float glow = glitch ? l.glow * 0.4f : l.glow;
+        int pad = (int) Math.ceil(lod * (0.22f + 0.28f * glow) + (retro ? lod * 0.2f : 0) + (sticker ? lod * 0.14f : 0) + (chrome || holo ? lod * 0.06f : 0)) + 2;
         int w = (int) Math.ceil(adv) + 2 * pad, half = (int) Math.ceil(asc + desc) + 2 * pad;
         float bx = pad, by = pad + asc; // baseline origin in each half
         BufferedImage img = new BufferedImage(w, half * 2, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        hints(g);
+        Rectangle2D gb = shape.getBounds2D();
+        float top = (float) gb.getMinY(), bot = (float) gb.getMaxY();
         // ---- effects (top half)
-        if (clean) blurred(g, shape, w, half, bx + 1.2f * k, by + 1.8f * k, lod * 0.035f, 0xFF05070C, 0.5f);
-        if (glow > 0.02f) {
-            float r = lod * (0.07f + 0.08f * glow), a = 0.5f + 0.4f * glow;
-            if (neon) {
-                float o = lod * 0.06f;
-                blurred(g, shape, w, half, bx - o, by + o * 0.5f, r * 1.3f, l.ga1, a * 0.9f);
-                blurred(g, shape, w, half, bx + o, by - o * 0.5f, r * 1.3f, l.ga2, a * 0.9f);
-            } else {
-                if (l.twoTone) {
-                    float o = lod * 0.05f;
-                    blurred(g, shape, w, half, bx - o, by - o, r * 1.4f, l.ga1, a * 0.7f);
-                    blurred(g, shape, w, half, bx + o, by + o, r * 1.4f, l.ga2, a * 0.7f);
-                }
-                blurred(g, shape, w, half, bx, by, r, l.col, a);
+        float r = lod * (0.07f + 0.08f * glow), a = 0.5f + 0.4f * glow;
+        if (neon) { // a glass tube: wide halo in the second glow colour, a tighter one in the first, the tube itself hollow, a hot core in the body half
+            blurred(g, shape, w, half, bx, by, r * 2.1f, l.ga2, 0.55f + 0.4f * glow);
+            blurred(g, shape, w, half, bx, by, r * 1.05f, l.ga1, a);
+            fill(g, shape, bx, by, l.ga1, 0.14f);
+            stroke(g, shape, bx, by, Math.max(1.4f, lod * 0.085f), Gfx.mix(l.ga1, 0xFFFFFFFF, 0.18f), 1);
+        } else if (chrome) {
+            blurred(g, shape, w, half, bx + lod * 0.02f, by + lod * 0.05f, lod * 0.06f, 0xFF04060C, 0.6f);
+            stroke(g, shape, bx, by, Math.max(2f, lod * 0.1f), 0xFF0B0F1A, 0.95f);
+            int sky = Gfx.mix(0xFFFFFFFF, l.ga2, 0.3f), mid = Gfx.mix(l.ga2, 0xFF0B1630, 0.55f), gnd = Gfx.mix(l.ga1, 0xFF21140A, 0.45f), low = Gfx.mix(l.col, 0xFFFFFFFF, 0.55f);
+            fillPaint(g, shape, bx, by, new LinearGradientPaint(0, top, 0, bot, new float[] {0f, 0.46f, 0.5f, 0.53f, 1f},
+                new Color[] {new Color(sky, true), new Color(mid, true), new Color(0xFFFFFFFF, true), new Color(gnd, true), new Color(low, true)}));
+            stroke(g, shape, bx, by, Math.max(0.9f, lod * 0.018f), 0xFFFFFFFF, 0.55f);
+        } else if (sunset) {
+            blurred(g, shape, w, half, bx, by, r * 1.4f, l.ga2, 0.45f + 0.3f * glow);
+            BufferedImage t = new BufferedImage(w, half, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D tg = t.createGraphics();
+            hints(tg);
+            fillPaint(tg, shape, bx, by, new LinearGradientPaint(0, top, 0, bot, new float[] {0f, 0.55f, 1f},
+                new Color[] {new Color(Gfx.mix(l.col, 0xFFFFFFFF, 0.12f), true), new Color(Gfx.mix(l.col, l.ga1, 0.7f), true), new Color(l.ga2, true)}));
+            tg.setComposite(AlphaComposite.Clear); // retro-sun bars cut through the lower half, thicker towards the bottom
+            float h = bot - top, y0 = by + top + h * 0.5f;
+            for (int j = 0; j < 5; j++) {
+                float bh = lod * (0.012f + 0.02f * j), yy = y0 + h * (0.5f * j / 5f) + h * 0.04f;
+                tg.fill(new Rectangle2D.Float(0, yy, w, bh));
+            }
+            tg.dispose();
+            g.setComposite(AlphaComposite.SrcOver);
+            g.drawImage(t, 0, 0, null);
+            stroke(g, shape, bx, by, 2.2f * k, 0xFF070A14, 0.22f);
+        } else if (sticker) {
+            fill(g, shape, bx + lod * 0.05f, by + lod * 0.075f, 0xFF05070C, 0.55f);
+            stroke(g, shape, bx, by, lod * 0.27f, 0xFF0B0D14, 1);
+            boolean lightText = lum(l.col) > 0.72f;
+            stroke(g, shape, bx, by, lod * 0.19f, lightText ? 0xFF1B2233 : 0xFFFFFFFF, 1);
+        } else if (holo) {
+            BufferedImage t = new BufferedImage(w, half, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D tg = t.createGraphics();
+            hints(tg);
+            int hb = Gfx.mix(l.col, l.ga2, 0.55f);
+            fill(tg, shape, bx + lod * 0.035f, by, l.ga1, 0.3f); // a ghost of the projection, offset
+            fill(tg, shape, bx, by, hb, 0.6f);
+            stroke(tg, shape, bx, by, Math.max(1f, lod * 0.022f), Gfx.mix(hb, 0xFFFFFFFF, 0.6f), 0.95f);
+            tg.setComposite(AlphaComposite.Clear); // scanlines
+            float period = Math.max(2.4f, lod * 0.052f);
+            for (float yy = 0; yy < half; yy += period) tg.fill(new Rectangle2D.Float(0, yy, w, period * 0.42f));
+            tg.dispose();
+            blurred(g, shape, w, half, bx, by, r * 1.3f, l.ga2, 0.5f + 0.3f * glow);
+            g.setComposite(AlphaComposite.SrcOver);
+            g.drawImage(t, 0, 0, null);
+        } else { // Retro, Echo, Glitch and the plain look (Air in PvP): a halo in the highlight colour
+            if (glow > 0.02f) blurred(g, shape, w, half, bx, by, r, l.col, a);
+            if (l.outline > 0.02f) {
+                stroke(g, shape, bx, by, 4.4f * k, 0xFF070A14, 0.16f * l.outline);
+                stroke(g, shape, bx, by, 2.2f * k, 0xFF070A14, 0.34f * l.outline);
+            }
+            if (retro) {
+                float o = Math.max(0.6f, lod * 0.028f);
+                for (int j = 6; j >= 1; j--) fill(g, shape, bx + o * j, by + o * j, Gfx.mix(l.ga2, 0xFF000000, 0.15f + 0.06f * j), 1);
+                stroke(g, shape, bx, by, 1.6f * k, l.ga1, 0.5f);
             }
         }
-        if (heavy) {
-            stroke(g, shape, bx, by, 4.6f * k, 0xFF05060A, 0.55f);
-            stroke(g, shape, bx, by, 2.4f * k, 0xFF05060A, 0.9f);
-        } else if (l.outline > 0.02f) {
-            stroke(g, shape, bx, by, 4.4f * k, 0xFF070A14, 0.16f * l.outline);
-            stroke(g, shape, bx, by, 2.2f * k, 0xFF070A14, 0.34f * l.outline);
-        }
-        if (retro) {
-            float o = Math.max(0.6f, lod * 0.028f);
-            for (int j = 6; j >= 1; j--) fill(g, shape, bx + o * j, by + o * j, Gfx.mix(l.ga2, 0xFF000000, 0.15f + 0.06f * j), 1);
-            stroke(g, shape, bx, by, 1.6f * k, l.ga1, 0.5f);
-        }
-        if (neon) {
-            float o = Math.max(0.8f, lod * 0.055f), sa = 0.55f + 0.35f * Math.min(1, l.glow + 0.3f);
-            fill(g, shape, bx - o, by + o * 0.5f, l.ga1, sa);
-            fill(g, shape, bx + o, by - o * 0.5f, l.ga2, sa);
-        }
-        // ---- the word itself, white (bottom half)
-        fill(g, shape, bx, by + half, 0xFFFFFFFF, 1);
+        // ---- the word itself, white (bottom half; Chrome, Sunset and Hologram live whole in the top half)
+        if (neon) { // just the hot core of the tube
+            fill(g, shape, bx, by + half, 0xFFFFFFFF, 0.22f);
+            stroke(g, shape, bx, by + half, Math.max(0.9f, lod * 0.032f), 0xFFFFFFFF, 1);
+        } else if (!(chrome || sunset || holo)) fill(g, shape, bx, by + half, 0xFFFFFFFF, 1);
         g.dispose();
         out.w = w; out.half = half; out.lod = lod;
         out.cx = bx + adv / 2;
         out.cy = by - lod * 0.36f; // capitals centred on cy, as Gfx.textFree draws
         return img;
+    }
+
+    private static void hints(Graphics2D g) {
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+    }
+
+    private static float lum(int argb) { return (0.299f * (argb >> 16 & 255) + 0.587f * (argb >> 8 & 255) + 0.114f * (argb & 255)) / 255f; }
+
+    private static void fillPaint(Graphics2D g, Shape s, float x, float y, java.awt.Paint p) {
+        AffineTransform t = g.getTransform();
+        g.translate(x, y);
+        g.setPaint(p);
+        g.fill(s);
+        g.setTransform(t);
     }
 
     private static void fill(Graphics2D g, Shape s, float x, float y, int col, float a) {

@@ -54,7 +54,7 @@ public final class Lyrics extends Module {
     private static final int IDLE = 0, LOADING = 1, SYNCED = 2, PLAIN = 3, INSTRUMENTAL = 4, NOT_FOUND = 5, OFFLINE = 6;
     private static final String[] PROFILE_KEYS = {"enabled", "textStyle", "pairWords", "anchor", "ox", "oy", "scale", "color", "chroma", "labels", "labelColor", "shadow", "bg", "bgAlpha", "accent", "border",
         "mode", "panelStyle", "lines", "align", "width", "songInfo", "albumArt", "trackProgress", "trackTime", "playerControls", "opacity", "paused", "upper", "panelKey",
-        "wStyle", "worldSize", "dist", "follow", "viewLock", "airMode", "musicNotes", "worldIntro", "preset", "font", "lyricsColor", "glowColor", "glowColor2", "twoTone", "appear", "disappear", "animSpeed", "glow", "beatGlow", "motion", "blur", "outline", "curve", "varied", "stars", "motes", "streaks", "density", "ambientColor"};
+        "wStyle", "worldSize", "dist", "follow", "viewLock", "airMode", "musicNotes", "worldIntro", "preset", "font", "lyricsColor", "glowColor", "glowColor2", "appear", "disappear", "animSpeed", "glow", "beatGlow", "motion", "blur", "outline", "curve", "varied", "stars", "motes", "streaks", "density", "ambientColor"};
 
     /** lyric lines by start time (seconds) */
     private double[] times = new double[0];
@@ -130,11 +130,10 @@ public final class Lyrics extends Module {
         java.util.function.BooleanSupplier style = section("Themes & type");
         add(Setting.choice("preset", "Theme preset", "HUD", THEME_NAMES).hint("Each theme has a text color and two glow colors. Album follows the cover art. Custom lets you pick all three.").when(style));
         add(Setting.choice("font", "Lyrics font", "Righteous", FONT_NAMES).hint("Semibold and Regular use Nether's active Pixel or Barlow typeface. The others are display fonts for lyrics.").when(style));
-        add(Setting.choice("textStyle", "Text style", "Neon", TEXT_STYLES).hint("Neon splits the text into its two glow colors like a neon sign. Glow is a soft halo. Clean is plain text with a shadow. Chroma cycles rainbow letters. Outline is a heavy dark edge that reads anywhere. Retro extrudes the words in the second glow color. Echo trails two copies above. Glitch splits red and cyan.").when(style));
+        add(Setting.choice("textStyle", "Text style", "Neon", TEXT_STYLES).hint("Neon is a lit glass tube with a hot core. Chrome is polished metal with a bright horizon. Sunset fades each letter from the highlight color into the second glow color. Sticker is a bold die-cut border with a hard shadow that reads on any background. Hologram is a flickering projection with scanlines. Retro extrudes the words in the second glow color. Echo trails two copies above. Glitch tears the words into shifting slices.").when(style));
         add(Setting.color("lyricsColor", "Custom highlight", "#FF6157").when(style).when(() -> str("preset").equals("Custom")));
-        add(Setting.color("glowColor", "Custom glow", "#FFB020").when(style).when(() -> str("preset").equals("Custom") && (bool("twoTone") || !str("textStyle").equals("Glow"))));
-        add(Setting.color("glowColor2", "Second glow color", "#55D9FF").when(style).when(() -> str("preset").equals("Custom") && (bool("twoTone") || !str("textStyle").equals("Glow"))));
-        add(Setting.bool("twoTone", "Two-color glow", false).hint("Adds a second soft color around active words.").when(style).when(() -> str("textStyle").equals("Glow")));
+        add(Setting.color("glowColor", "Custom glow", "#FFB020").when(style).when(() -> str("preset").equals("Custom")));
+        add(Setting.color("glowColor2", "Second glow color", "#55D9FF").when(style).when(() -> str("preset").equals("Custom")));
 
         java.util.function.BooleanSupplier animation = section("Animation & effects");
         add(Setting.choice("appear", "Word entrance", "Pop", "Fade", "Rise", "Pop", "Neon").hint("Neon flickers each word on like a sign lighting up.").when(animation).when(() -> mode() == 1));
@@ -158,8 +157,7 @@ public final class Lyrics extends Module {
         add(Setting.key("laterKey", "Nudge later key", -1).hint("+100 ms, saved for the current song.").when(sync));
         add(Setting.key("earlierKey", "Nudge earlier key", -1).hint("-100 ms, saved for the current song.").when(sync));
         add(Setting.action("refetch", "Search lyrics again", "SEARCH", this::refetch).hint("Recheck local lyrics and refresh online results for the current song.").when(sync));
-        add(Setting.key("panelKey", "3D lyric panel key", 79).hint("Default O. Opens the lyric player in a white bubble round you; press again (or Esc) to leave."));
-        add(Setting.slider("panelDist", "3D panel distance", 2.5, 8, 0.1, 4.2).hint("How far the panel stands on the bubble's wall. Further makes it smaller in view."));
+        add(Setting.key("panelKey", "Lyrics settings key", 79).hint("Default O. Opens the lyric settings from the game."));
 
         java.util.function.BooleanSupplier profiles = section("Profiles & reset");
         add(Setting.choice("profileSlot", "Look slot", "1", "1", "2", "3").when(profiles));
@@ -209,8 +207,8 @@ public final class Lyrics extends Module {
     /** Script / outline faces: hard to read small, so small text (top bar, player rows) uses Semibold instead. */
     private static final java.util.Set<String> SCRIPT_FONTS = new java.util.HashSet<>(java.util.Arrays.asList("Pacifico", "Kaushan Script", "Neon script", "Monoton",
         "Yellowtail", "Courgette", "Damion", "Grand Hotel", "Yesteryear", "Press Start", "Shrikhand"));
-    static final String[] TEXT_STYLES = {"Neon", "Glow", "Clean", "Chroma", "Outline", "Retro", "Echo", "Glitch"};
-    static final String[] TEXT_CAPTIONS = {"Neon  ·  split glow", "Glow  ·  soft halo", "Clean  ·  shadow only", "Chroma  ·  rainbow letters", "Outline  ·  heavy edge", "Retro  ·  extruded", "Echo  ·  trailing copies", "Glitch  ·  RGB split"};
+    static final String[] TEXT_STYLES = {"Neon", "Chrome", "Sunset", "Sticker", "Hologram", "Retro", "Echo", "Glitch"};
+    static final String[] TEXT_CAPTIONS = {"Neon  ·  glass tube", "Chrome  ·  polished metal", "Sunset  ·  colour fade", "Sticker  ·  die-cut border", "Hologram  ·  scanlines", "Retro  ·  extruded", "Echo  ·  trailing copies", "Glitch  ·  torn slices"};
     static final String[] WORLD_STYLES = {"Air", "Sky", "Walls", "Row", "Lines", "Screen"};
     static final String[] WORLD_CAPTIONS = {"Air  ·  floating words", "Sky  ·  large, far overhead", "Walls  ·  printed on blocks", "Row  ·  word by word ahead", "Lines  ·  whole line ahead", "Screen  ·  floating on screen"};
 
@@ -306,6 +304,14 @@ public final class Lyrics extends Module {
             if (!(Config.raw(id, "outline") instanceof Number)) Config.set(id, "outline", old * 1.5);
             Config.set(id, "v3", true);
         }
+        if (Config.raw(id, "v5") == null) { // text styles: Glow / Clean / Chroma / Outline became Neon / Neon / Sunset / Sticker
+            Object ts = Config.raw(id, "textStyle");
+            if ("Glow".equals(ts) || "Clean".equals(ts)) Config.set(id, "textStyle", "Neon");
+            else if ("Chroma".equals(ts)) Config.set(id, "textStyle", "Sunset");
+            else if ("Outline".equals(ts)) Config.set(id, "textStyle", "Sticker");
+            Config.set(id, "twoTone", null);
+            Config.set(id, "v5", true);
+        }
         if (Config.raw(id, "v4") == null) { // the Scatter layout became Air
             if ("Scatter".equals(Config.raw(id, "wStyle"))) Config.set(id, "wStyle", "Air");
             Config.set(id, "v4", true);
@@ -314,7 +320,6 @@ public final class Lyrics extends Module {
 
     @Override public void tick() {
         migrate();
-        if (!enabled() && LyricsWorldPanel.visible()) LyricsWorldPanel.hide();
         if (enabled() && mode() == 1 && skyPassFn == null) { skyPassFn = this::skyPassRun; dev.nether.ov.features.visual.CustomSky.extra = skyPassFn; }
         if (skyPassFn != null) dev.nether.ov.features.visual.CustomSky.installPass();
         if (!live()) return;
@@ -1118,6 +1123,9 @@ public final class Lyrics extends Module {
      * The player's position, smoothed: it runs on its own clock and eases towards each report (never backwards by more
      * than a crawl), so coarse or jittery timeline updates do not shake the lyrics; a seek or a jump over 0.6 s snaps.
      */
+    /** Counts every time the clock jumped to a new position (a seek, or a late correction): words already timed must be placed again. */
+    private int clkJumps, clkJumpsSeen;
+
     private double clock() {
         Media.State s = Media.cur;
         if (s == null) s = track;
@@ -1128,7 +1136,7 @@ public final class Lyrics extends Module {
         clkNs = ns;
         if (!s.playing || Double.isNaN(clk)) return clk = raw;
         double pred = clk + dt * s.rate, err = raw - pred;
-        if (Math.abs(err) > 0.6) return clk = raw;
+        if (Math.abs(err) > 0.6) { clkJumps++; return clk = raw; }
         return clk = pred + Math.max(-0.9 * dt * s.rate, err * Math.min(1, dt * 2.5));
     }
 
@@ -1164,7 +1172,7 @@ public final class Lyrics extends Module {
 
     /** Keys from the game's key callback (in play); true swallows. */
     public boolean key(int key) {
-        if (key >= 0 && key == (int) num("panelKey") && enabled()) { LyricsWorldPanel.toggle(); return true; }
+        if (key >= 0 && key == (int) num("panelKey") && enabled()) { Input.eatChar(); Menu.openModule(id); return true; }
         if (key < 0 || !enabled()) return false;
         if (key == (int) num("laterKey")) { nudge(100); return true; }
         if (key == (int) num("earlierKey")) { nudge(-100); return true; }
@@ -1478,7 +1486,7 @@ public final class Lyrics extends Module {
         float x = centre ? (left + right) / 2 - total / 2 : left, a0 = Gfx.alpha;
         boolean sh = bool("shadow"), calm = Config.calm();
         String style = str("textStyle");
-        boolean neon = style.equals("Neon") && !calm, clean = style.equals("Clean");
+        boolean neon = style.equals("Neon") && !calm, clean = style.equals("Sticker") || style.equals("Chrome");
         int col = color(), dim = labelColor(), glowCol = glowColor(), glowCol2 = glowColor2();
         float glow = (float) num("glow") / 100, so = Math.max(0.5f, size * 0.06f), sa = 0.3f + 0.45f * glow;
         Gfx.alpha = a0 * a;
@@ -1500,11 +1508,6 @@ public final class Lyrics extends Module {
                         Gfx.text(fo, size, x + 1, wy, g, ws[k], false, 0);
                         Gfx.text(fo, size, x, wy - 1, g, ws[k], false, 0);
                         Gfx.text(fo, size, x, wy + 1, g, ws[k], false, 0);
-                        if (bool("twoTone") && style.equals("Glow")) {
-                            int g1 = Gfx.a(glowCol, 0.035f + 0.08f * glow), g2 = Gfx.a(glowCol2, 0.035f + 0.08f * glow);
-                            Gfx.text(fo, size, x - 2, wy, g1, ws[k], false, 0);
-                            Gfx.text(fo, size, x + 2, wy, g2, ws[k], false, 0);
-                        }
                     }
                     float fw = (ww + 2) * fk;
                     int[] pc = Gfx.clipIn(x - 1, wy - size, fw + 3, size * 2); // soft leading edge
@@ -1671,6 +1674,7 @@ public final class Lyrics extends Module {
         if (c == null) c = new double[] {0, 0, 0, 0, 0, 70}; // Screen: no world needed
         camX = c[0]; camY = c[1]; camZ = c[2]; camYaw = c[3]; camPitch = c[4];
         long nowMs = ms();
+        if (clkJumps != clkJumpsSeen) { clkJumpsSeen = clkJumps; clearWorld(); } // the song position moved: re-time the line on screen
         Media.State s = Media.cur;
         boolean playing = demoOn || s != null && s.playing;
         if (demoOn) { // the demo loops; each lap opens with the track intro, as a new song would
@@ -1893,10 +1897,15 @@ public final class Lyrics extends Module {
         double[] d = dir(lp, ly), right = dir(0, ly + 90);
         double[] mid = {eye[0] + d[0] * dist, eye[1] + d[1] * dist, eye[2] + d[2] * dist};
         double k = u * fit;
+        // far away, so the line is a flat sheet that stays as it was placed (facing where you stood), not a camera-facing billboard
+        double[] pn = {-d[0], -d[1], -d[2]};
+        double[] pu = {pn[1] * right[2] - pn[2] * right[1], pn[2] * right[0] - pn[0] * right[2], pn[0] * right[1] - pn[1] * right[0]};
         for (int i = 0; i < ws.length; i++) {
             double ox = xy[i][0] * k, oy = -xy[i][1] * k;
-            Piece p = addPiece(new String[] {ws[i]}, new long[] {at[i]}, new long[] {until[i]}, new double[] {mid[0] + right[0] * ox, mid[1] + oy, mid[2] + right[2] * ox}, eye, 1, c, W, H);
+            Piece p = addPiece(new String[] {ws[i]}, new long[] {at[i]}, new long[] {until[i]},
+                new double[] {mid[0] + right[0] * ox + pu[0] * oy, mid[1] + right[1] * ox + pu[1] * oy, mid[2] + right[2] * ox + pu[2] * oy}, eye, 1, c, W, H);
             p.fit = fit; p.stamped = stamped; p.line = idx; p.order = i; p.sky = true;
+            p.pr = right; p.pu = pu; p.pn = pn;
         }
     }
 
@@ -2111,8 +2120,8 @@ public final class Lyrics extends Module {
     }
 
     private double[] pos(Piece p, boolean follow) {
-        if (p.pr != null) return new double[] {p.x, p.y, p.z}; // printed on a wall: stays on it
         if (p.sky) return new double[] {p.x - p.ex + camX, p.y - p.ey + camY, p.z - p.ez + camZ};
+        if (p.pr != null) return new double[] {p.x, p.y, p.z}; // printed on a wall: stays on it
         if (bool("viewLock")) {
             double[] d = dir(camPitch + p.viewPitch, camYaw + p.viewYaw);
             return new double[] {camX + d[0] * p.viewDist, camY + d[1] * p.viewDist, camZ + d[2] * p.viewDist};
@@ -2243,8 +2252,8 @@ public final class Lyrics extends Module {
         for (Piece p : order) {
             float[] a = anim(p, now, f);
             if (a == null) continue;
-            if (p.pr != null) { drawFlat(p, now, f, a, c, fbW, fbH, tanY); continue; }
             double bob = bobEm == 0 ? 0 : Math.sin(secs * 1.6 + p.order * 0.9 + p.seed) * bobEm * GLYPH * u * p.fit;
+            if (p.pr != null) { if (p.sky) a[3] += (float) bob; drawFlat(p, now, f, a, c, fbW, fbH, tanY, pos(p, follow)); continue; }
             double[] q = pos(p, follow);
             if (!Project.to(q[0], q[1] + a[3] + bob, q[2]) || Project.depth < 1 || Math.abs(Project.nx) > 1.3 || Math.abs(Project.ny) > 1.3) continue;
             float alpha = a[0] * Math.min(1, (float) (Project.depth - 1) / 1.5f); // walked into: fades instead of filling the screen
@@ -2317,12 +2326,12 @@ public final class Lyrics extends Module {
      * A Walls word flat on its plane: the plane's projective map (true clip w, so it is cut cleanly at the screen edge
      * and behind you) with the glyphs rasterised at a size stepped in half octaves, not every frame.
      */
-    private void drawFlat(Piece p, long now, Fx f, float[] a, double[] c, int fbW, int fbH, double tanY) {
-        double vx = c[0] - p.x, vy = c[1] - p.y, vz = c[2] - p.z;
+    private void drawFlat(Piece p, long now, Fx f, float[] a, double[] c, int fbW, int fbH, double tanY, double[] q) {
+        double vx = c[0] - q[0], vy = c[1] - q[1], vz = c[2] - q[2];
         if (vx * p.pn[0] + vy * p.pn[1] + vz * p.pn[2] <= 0.02) return; // you are behind the wall
-        double ox = p.x + p.pu[0] * a[3], oy = p.y + p.pu[1] * a[3], oz = p.z + p.pu[2] * a[3];
+        double ox = q[0] + p.pu[0] * a[3], oy = q[1] + p.pu[1] * a[3], oz = q[2] + p.pu[2] * a[3];
         if (!Project.to(ox, oy, oz) || Project.depth < 0.6) return;
-        float alpha = a[0] * Math.min(1, (float) (Project.depth - 0.6) / 1.2f);
+        float alpha = a[0] * Math.min(1, (float) (Project.depth - 0.6) / 1.2f) * (p.sky ? 0.94f : 1);
         if (alpha < 0.02f) return;
         double u = unit() * p.fit, fs = u * fbH / (2 * Project.depth * tanY); // framebuffer px per font px at the word
         if (fs < 0.2) return;
@@ -2489,7 +2498,7 @@ public final class Lyrics extends Module {
         if (layout == PV_WALLS) { // printed flat on a wall seen from the side: the card's own plane, in perspective
             float pw = w * 0.8f, ph = h * 0.62f;
             float[] quad = {cx - pw / 2, cy - ph * 0.66f, cx + pw / 2, cy - ph * 0.32f, cx + pw / 2, cy + ph * 0.32f, cx - pw / 2, cy + ph * 0.66f};
-            float[] map = LyricsWorldPanel.homography(pw, ph, quad);
+            float[] map = LyricsStudio.homography(pw, ph, quad);
             if (map == null) return;
             float[][] xy = rows(ws, 9.5f * GLYPH, 1.5f, false, false, 0);
             float wmax = 1;
@@ -2669,30 +2678,35 @@ public final class Lyrics extends Module {
     }
 
     /**
-     * One word, centre (cx, cy) and size P in framebuffer px, unsnapped. Its look (halo, outline, shadow, neon split,
-     * retro extrusion) is a baked sprite ({@link LyricSprites}): one quad for the effects, one for the word, plus a copy
-     * or two for the animated styles (Echo, Glitch) and motion blur. Neon: the halo in the two glow colours and the word
-     * split into them either side of a bright core. Clean: no halo, a soft drop shadow. Chroma: the rainbow slides over time.
+     * One word, centre (cx, cy) and size P in framebuffer px, unsnapped. Its look is a baked sprite ({@link LyricSprites}):
+     * one quad for the effects half and one for the word half, plus tinted copies for the animated styles. Neon: a glass
+     * tube with a hot core. Chrome / Sunset / Hologram: the whole word is baked into the effects half. Sticker: a die-cut
+     * border round a coloured word. Retro: extrusion. Echo: copies trailing above. Glitch: slices tearing sideways.
      */
     private void word(String s, float cx, float cy, float P, float a, float blur, int col, float glow, float outline, float boost) {
         long ns = System.nanoTime();
         if (ns - pumpNs > 4_000_000L) { pumpNs = ns; LyricSprites.pump(); }
-        String style = plainWords ? "Glow" : str("textStyle");
-        boolean neon = style.equals("Neon"), chroma = style.equals("Chroma"), echo = style.equals("Echo"), glitch = style.equals("Glitch");
+        String style = plainWords ? "Plain" : str("textStyle");
+        boolean echo = style.equals("Echo"), glitch = style.equals("Glitch"), holo = style.equals("Hologram");
+        boolean whole = style.equals("Chrome") || style.equals("Sunset") || holo; // the word is in the effects half, no body quad
         double secs = (ns - NS0) / 1e9;
-        if (chroma) col = hue((float) (secs / 2.4 + cx * 0.0007));
         LyricSprites.Look l = look;
         l.face = font(); l.style = style; l.glow = Math.round(glow * 20) / 20f; l.outline = Math.round(outline * 20) / 20f;
-        l.col = chroma ? 0xFFFFFFFF : col | 0xFF000000; l.ga1 = glowColor(); l.ga2 = glowColor2(); l.twoTone = bool("twoTone") && !chroma;
+        l.col = col | 0xFF000000; l.ga1 = glowColor(); l.ga2 = glowColor2();
         LyricSprites.Sprite sp = LyricSprites.get(s, l, P);
         if (sp == null) { // first frames of a new word, while it bakes: plain
             Gfx.textFree(l.face, P, cx - Gfx.widthFree(l.face, P, s) / 2, cy, Gfx.a(col, a), s);
             return;
         }
-        int fxTint = chroma ? Gfx.a(col, a) : Gfx.a(0xFFFFFFFF, a);
-        LyricSprites.fx(sp, cx, cy, P, fxTint);
-        if (boost > 1.01f && glow > 0.02f) LyricSprites.fx(sp, cx, cy, P, Gfx.a(0xFFFFFFFF, a * Math.min(1, (boost - 1) * 0.8f))); // a held note glows brighter
         float k = P / REF;
+        if (holo) { // a projection: flickers, and jumps sideways for a frame now and then
+            long slot = (long) (secs * 14) + (long) (cx * 0.29);
+            long h = (slot * 0x9E3779B97F4A7C15L) >>> 58;
+            if (h < 3) a *= 0.55f;
+            if (h == 5) cx += P * 0.04f;
+        }
+        LyricSprites.fx(sp, cx, cy, P, Gfx.a(0xFFFFFFFF, a));
+        if (boost > 1.01f && glow > 0.02f) LyricSprites.fx(sp, cx, cy, P, Gfx.a(0xFFFFFFFF, a * Math.min(1, (boost - 1) * 0.8f))); // a held note glows brighter
         if (blur > 0.01f) for (int j = 1; j <= 2; j++) {
             int bc = Gfx.a(col, a * 0.3f / j);
             float dx = 2 * j * 1.6f * blur * k;
@@ -2704,20 +2718,29 @@ public final class Lyrics extends Module {
             LyricSprites.body(sp, cx, cy - e * 2, P, Gfx.a(l.ga2, a * 0.18f));
             LyricSprites.body(sp, cx, cy - e, P, Gfx.a(l.ga1, a * 0.36f));
         }
-        if (glitch) { // red / cyan split that jumps wider for a moment every so often
-            long slot = (long) (secs * 11) + (long) (cx * 0.37);
-            float jump = ((slot * 0x9E3779B97F4A7C15L) >>> 59) == 0 ? 3.2f : 1;
-            float o = Math.max(0.8f, P * 0.045f) * jump, dy = jump > 1 ? P * 0.04f : 0;
-            LyricSprites.body(sp, cx - o, cy + dy, P, Gfx.a(0xFFFF2E4D, a * 0.7f));
-            LyricSprites.body(sp, cx + o, cy - dy, P, Gfx.a(0xFF2EE6FF, a * 0.7f));
-            col = Gfx.mix(col, 0xFFFFFFFF, 0.45f);
+        if (glitch) { // a steady red / cyan fringe, and every so often the word tears into slices that slide apart
+            long slot = (long) (secs * 9) + (long) (cx * 0.37);
+            long h = (slot * 0x9E3779B97F4A7C15L) >>> 56; // 0..255
+            boolean burst = h < 70;
+            float o = Math.max(0.7f, P * 0.03f) * (burst ? 2.6f : 1);
+            LyricSprites.body(sp, cx - o, cy, P, Gfx.a(0xFFFF2E4D, a * 0.55f));
+            LyricSprites.body(sp, cx + o, cy, P, Gfx.a(0xFF2EE6FF, a * 0.55f));
+            int tint = Gfx.a(Gfx.mix(col, 0xFFFFFFFF, 0.35f), a * (1 - 0.55f * blur));
+            if (burst) {
+                for (int j = 0; j < 5; j++) {
+                    long r = ((slot * 31 + j) * 0x9E3779B97F4A7C15L) >>> 40;
+                    float dx = ((r & 15) - 7.5f) / 7.5f * P * 0.16f * ((r >> 4 & 1) == 0 ? 1 : 0.4f);
+                    LyricSprites.bodySlice(sp, cx + dx, cy, P, tint, j / 5f, (j + 1) / 5f);
+                }
+            } else LyricSprites.body(sp, cx, cy, P, tint);
+            return;
         }
-        if (neon) col = Gfx.mix(col, 0xFFFFFFFF, 0.2f);
+        if (whole) return;
+        if (style.equals("Neon")) col = Gfx.mix(col, 0xFFFFFFFF, 0.55f);
         LyricSprites.body(sp, cx, cy, P, Gfx.a(col, a * (1 - 0.55f * blur)));
     }
 
     private final LyricSprites.Look look = new LyricSprites.Look();
     private long pumpNs;
 
-    private static int hue(float h) { return 0xFF000000 | (java.awt.Color.HSBtoRGB(h - (float) Math.floor(h), 0.62f, 1f) & 0xFFFFFF); }
 }

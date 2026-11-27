@@ -80,9 +80,9 @@ public final class LyricsStudio {
         Gfx.reclip(clip);
         Media.State st = Media.cur;
         float mid = x + sw + 10 + tw / 2, cy = y + h / 2;
-        transport("lsprev", mid - 34, cy, 10, LyricsWorldPanel.PREV, st != null && st.canPrev, Media::prev, false);
-        transport("lsplay", mid, cy, 13, st != null && st.playing ? LyricsWorldPanel.PAUSE : LyricsWorldPanel.PLAY, st != null && st.canPlay, Media::toggle, true);
-        transport("lsnext", mid + 34, cy, 10, LyricsWorldPanel.NEXT, st != null && st.canNext, Media::next, false);
+        transport("lsprev", mid - 34, cy, 10, PREV, st != null && st.canPrev, Media::prev, false);
+        transport("lsplay", mid, cy, 13, st != null && st.playing ? PAUSE : PLAY, st != null && st.canPlay, Media::toggle, true);
+        transport("lsnext", mid + 34, cy, 10, NEXT, st != null && st.canNext, Media::next, false);
         if (Menu.button("lsslim", "EXPAND", x + w - bw, y + (h - 28) / 2, bw, 28, false)) setSlim(L, false);
         if (Menu.in(x + w - bw, y + (h - 28) / 2, bw, 28)) Menu.tip = "Show the full preview stage";
     }
@@ -114,7 +114,7 @@ public final class LyricsStudio {
         Gfx.text(Gfx.UI, 10.5f, tx, ay + 28, Th.dim, Menu.fit(s == null ? "The stage plays a demo line" : nt[1], Gfx.UI, 10.5f, tr - tx, 0));
         Gfx.rect(tx, ay + 39, 6, 6, 3, s != null && L.statusText().startsWith("Synced") ? 0xFF3DDC84 : Th.mut);
         Gfx.text(Gfx.UI, 10, tx + 11, ay + 42, Th.mut, Menu.fit(L.statusText(), Gfx.UI, 10, tr - tx - 11, 0));
-        // timeline (click to seek) and transport, like the player card of the 3D panel
+        // timeline (click to seek) and transport, like the player card of the player card
         float bx = ax, bw = rw - 24, by = ay + as + 12;
         if (s != null && s.timeline()) {
             float p = (float) Math.max(0, Math.min(1, s.position() / s.dur)), t = Menu.an("lsseek", Menu.in(bx, by - 6, bw, 14) && s.canSeek);
@@ -126,14 +126,14 @@ public final class LyricsStudio {
             if (s.canSeek && Menu.hit(bx, by - 6, bw, 14)) Media.seek(Math.max(0, Math.min(1, (Menu.L - bx) / bw)) * s.dur);
         }
         float cy = by + 30, mid = rx + rw / 2;
-        transport("lsprev", mid - 34, cy, 11, LyricsWorldPanel.PREV, s != null && s.canPrev, Media::prev, false);
-        transport("lsplay", mid, cy, 14, s != null && s.playing ? LyricsWorldPanel.PAUSE : LyricsWorldPanel.PLAY, s != null && s.canPlay, Media::toggle, true);
-        transport("lsnext", mid + 34, cy, 11, LyricsWorldPanel.NEXT, s != null && s.canNext, Media::next, false);
+        transport("lsprev", mid - 34, cy, 11, PREV, s != null && s.canPrev, Media::prev, false);
+        transport("lsplay", mid, cy, 14, s != null && s.playing ? PAUSE : PLAY, s != null && s.canPlay, Media::toggle, true);
+        transport("lsnext", mid + 34, cy, 11, NEXT, s != null && s.canNext, Media::next, false);
         boolean ok = Menu.liveOk(L);
         if (Menu.fbutton("lslive", "PREVIEW IN WORLD", ax, y + h - 42, rw - 24, 30, ok) && ok) { ColorPicker.close(); Menu.live = L; liveScroll = 0; }
         if (!ok && Menu.in(ax, y + h - 42, rw - 24, 30)) Menu.tip = "Join a world to preview the lyrics in it";
         String key = Menu.keyName((int) L.num("panelKey"));
-        tag(x + 10, y + h - 28, "3D PLAYER IN GAME  ·  " + key.toUpperCase(Locale.ROOT));
+        tag(x + 10, y + h - 28, "LYRIC SETTINGS IN GAME  ·  " + key.toUpperCase(Locale.ROOT));
     }
 
     private static void transport(String id, float cx, float cy, float r, java.awt.Shape icon, boolean ok, Runnable run, boolean primary) {
@@ -141,7 +141,7 @@ public final class LyricsStudio {
         float t = Menu.an(id, hv);
         Gfx.rect(cx - r, cy - r, 2 * r, 2 * r, r, !ok ? Gfx.a(Th.ov, 0.04f) : primary ? Gfx.mix(Th.ac, Th.ac2, t) : Gfx.a(Th.ov, 0.06f + 0.08f * t));
         float is = r * 1.05f;
-        Gfx.mask("ls." + id + (icon == LyricsWorldPanel.PAUSE ? "p" : ""), icon, 16, cx - is / 2, cy - is / 2, is, !ok ? Th.mut : primary ? 0xFFFFFFFF : Gfx.mix(Th.dim, Th.tx, t));
+        Gfx.mask("ls." + id + (icon == PAUSE ? "p" : ""), icon, 16, cx - is / 2, cy - is / 2, is, !ok ? Th.mut : primary ? 0xFFFFFFFF : Gfx.mix(Th.dim, Th.tx, t));
         if (ok && Menu.hit(cx - r, cy - r, 2 * r, 2 * r)) run.run();
     }
 
@@ -172,7 +172,7 @@ public final class LyricsStudio {
                 y = section("Text style", null, x, y, w);
                 y = cards(L, "textStyle", Lyrics.TEXT_STYLES, Lyrics.TEXT_CAPTIONS, x, y, w, cols(w, 150, 4), 64,
                     (v, cx, cy, cw, ch) -> still(L, WORD, cx, cy, cw, ch, "textStyle", v));
-                return rows(L, x, y, w, "glow", "twoTone", "beatGlow");
+                return rows(L, x, y, w, "glow", "beatGlow");
             }
             case 1: { // Font
                 y = section("Font", "Each name is drawn in its own font with your theme", x, y, w);
@@ -392,5 +392,41 @@ public final class LyricsStudio {
             if ((Menu.hit(cx, cy, cw, ch) || Menu.used(f) != 0) && !sel) Config.set(L.id, key, opts[i]);
         }
         return y + ((opts.length + cols - 1) / cols) * (ch + gap) + 8;
+    }
+
+    /** Homography from a local panel rectangle to its four perspective-projected corners. */
+    static float[] homography(float width, float height, float[] p) {
+        double x0 = p[0], y0 = p[1], x1 = p[2], y1 = p[3], x2 = p[4], y2 = p[5], x3 = p[6], y3 = p[7];
+        double dx1 = x1 - x2, dx2 = x3 - x2, dx3 = x0 - x1 + x2 - x3;
+        double dy1 = y1 - y2, dy2 = y3 - y2, dy3 = y0 - y1 + y2 - y3;
+        double den = dx1 * dy2 - dx2 * dy1;
+        if (Math.abs(den) < 1e-6 || width <= 0 || height <= 0) return null;
+        double g = (dx3 * dy2 - dx2 * dy3) / den;
+        double h = (dx1 * dy3 - dx3 * dy1) / den;
+        double a = x1 - x0 + g * x1, b = x3 - x0 + h * x3;
+        double d = y1 - y0 + g * y1, e = y3 - y0 + h * y3;
+        return new float[] {(float) (a / width), (float) (d / width), (float) (g / width),
+            (float) (b / height), (float) (e / height), (float) (h / height), (float) x0, (float) y0, 1};
+    }
+
+    /** Transport icons in a 16-unit box. */
+    static final java.awt.Shape PLAY, PAUSE, PREV, NEXT;
+    static {
+        java.awt.geom.Path2D.Float p = new java.awt.geom.Path2D.Float();
+        p.moveTo(4.5f, 2.5f); p.lineTo(13.5f, 8); p.lineTo(4.5f, 13.5f); p.closePath();
+        PLAY = p;
+        java.awt.geom.Area pa = new java.awt.geom.Area(new java.awt.geom.RoundRectangle2D.Float(3.5f, 2.5f, 3.2f, 11, 1.4f, 1.4f));
+        pa.add(new java.awt.geom.Area(new java.awt.geom.RoundRectangle2D.Float(9.3f, 2.5f, 3.2f, 11, 1.4f, 1.4f)));
+        PAUSE = pa;
+        java.awt.geom.Path2D.Float pv = new java.awt.geom.Path2D.Float();
+        pv.moveTo(13, 3); pv.lineTo(5.5f, 8); pv.lineTo(13, 13); pv.closePath();
+        java.awt.geom.Area pr = new java.awt.geom.Area(pv);
+        pr.add(new java.awt.geom.Area(new java.awt.geom.RoundRectangle2D.Float(3, 3, 2.2f, 10, 1, 1)));
+        PREV = pr;
+        java.awt.geom.Path2D.Float nx = new java.awt.geom.Path2D.Float();
+        nx.moveTo(3, 3); nx.lineTo(10.5f, 8); nx.lineTo(3, 13); nx.closePath();
+        java.awt.geom.Area na = new java.awt.geom.Area(nx);
+        na.add(new java.awt.geom.Area(new java.awt.geom.RoundRectangle2D.Float(10.8f, 3, 2.2f, 10, 1, 1)));
+        NEXT = na;
     }
 }
