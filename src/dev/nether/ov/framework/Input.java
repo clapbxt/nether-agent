@@ -5,11 +5,11 @@ import java.util.ArrayList;
 import dev.nether.ov.features.hud.HitTracker;
 import dev.nether.ov.features.lyrics.LyricsWorldPanel;
 import dev.nether.ov.features.social.Party;
-import dev.nether.ov.features.social.PartyPick;
 import dev.nether.ov.game.Game;
 import dev.nether.ov.game.Keybind;
 import dev.nether.ov.menu.Menu;
 import dev.nether.ov.menu.title.MainMenu;
+import dev.nether.ov.menu.title.PlaySelect;
 import dev.nether.ov.platform.Plat;
 
 /**
@@ -145,10 +145,10 @@ public final class Input {
             if (key >= 32 && key <= 162) eatCharAt = System.currentTimeMillis();
             return true;
         }
+        // SELECT MODE on our title screen: its search box, Enter / Esc / Tab
+        if (!menuOpen && MainMenu.title && PlaySelect.key(key, action)) return true;
         // the party lobby's chat field / key capture on our title screen
         if (!menuOpen && (MainMenu.title || MainMenu.pause || Party.capturing()) && Party.key(key, action)) return true;
-        // the party leader's pick on the game's world / server list: Enter selects for the party instead of starting
-        if (!menuOpen && PartyPick.key(key, action)) return true;
         if (worldGuiOpen) {
             if (Menu.capturing() && action == PRESS) { Menu.capture(key); return true; }
             if (key == 256 && action == PRESS) { LyricsWorldPanel.finishDrag(); return true; }
@@ -246,6 +246,7 @@ public final class Input {
         if (menuOpen) { scrollY += y; return true; }
         if (worldGuiOpen) { LyricsWorldPanel.scroll(y); return true; }
         if (!menuOpen && LyricsWorldPanel.scroll(y)) return true;
+        if (MainMenu.title && PlaySelect.isOpen()) { PlaySelect.wheel += (float) y; return true; }
         if (MainMenu.title || (MainMenu.pause && Party.panelOpen())) { Party.wheel += (float) y; return true; }
         return Modules.onScroll(y);
     }
@@ -258,6 +259,7 @@ public final class Input {
             if (eat) return true;
         }
         if (!menuOpen && (!worldGuiOpen || LyricsWorldPanel.dragging())) {
+            if (PlaySelect.isOpen() && MainMenu.title) { if (cp >= 32 && cp <= 0xFFFF && !Character.isSurrogate((char) cp)) PlaySelect.chars(String.valueOf((char) cp)); return true; }
             if (Party.typing && MainMenu.title) { if (cp >= 32 && cp <= 0xFFFF && !Character.isSurrogate((char) cp)) Party.chars(String.valueOf((char) cp)); return true; }
             return false;
         }

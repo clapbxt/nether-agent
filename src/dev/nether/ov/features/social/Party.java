@@ -34,6 +34,7 @@ import dev.nether.ov.game.Leave;
 import dev.nether.ov.game.Res;
 import dev.nether.ov.menu.Menu;
 import dev.nether.ov.menu.title.MainMenu;
+import dev.nether.ov.menu.title.PlaySelect;
 import dev.nether.ov.menu.title.QuickJoin;
 import dev.nether.ov.platform.Plat;
 import dev.nether.ov.ui.Gfx;
@@ -48,8 +49,8 @@ import dev.nether.ov.ui.Toast;
  * The party lobby on the title screen (Fortnite-style): your party standing on the stage in their own skins, cape and
  * cosmetics, nameplates with leader crown, ready and mic state; empty spots invite friends. Invite / join-request
  * cards, live party chat (title screen only, never in the world or the server's chat), voice controls, the party card
- * (the leader picks SURVIVAL / MULTIPLAYER on the game's own lists ({@link PartyPick}), everyone readies up, a 5 s
- * countdown starts it; members who leave while it plays can only REJOIN), and the PARTY drawer (members, requests,
+ * (the leader picks a world or server in SELECT MODE ({@link PlaySelect}), everyone readies up, a 5 s countdown
+ * starts it; members who leave while it plays can only REJOIN), and the PARTY drawer (members, requests,
  * friends to invite), also on the pause screen in a world (members, invite, kick, volume, voice).
  *
  * The launcher does all the work (`crates/app/src/party.rs`): this class only draws and sends actions over a loopback
@@ -123,13 +124,19 @@ public final class Party {
     public static boolean panelOpen() { return drawerOpen || voiceOpen || popFor != null; }
     public static void lockedNote() { say("Your party is playing: REJOIN it, or leave the party first"); Sfx.error(); }
 
-    /** Leader: pick where the party plays (the game's own lists; 1.8.9 / 1.12.2: the card's own picker). */
+    /** Leader: pick where the party plays (SELECT MODE on that tab). */
     public static void pick(int kind, Object screen) {
-        if (Game.legacy()) { destKind = kind; destOpen = true; return; }
-        PartyPick.start(kind, screen);
+        PlaySelect.open(kind == PartyPick.WORLD ? PlaySelect.WORLDS : PlaySelect.SERVERS, true, screen);
     }
-    static void pickServer(String addr, String name) { act("dest", "kind", "server", "address", normal(addr), "name", name); }
-    static void pickWorld(String folder) { act("dest", "kind", "world", "name", folder); }
+    public static void pickServer(String addr, String name) { act("dest", "kind", "server", "address", normal(addr), "name", name); }
+    public static void pickWorld(String folder) { act("dest", "kind", "world", "name", folder); }
+    /** The party's pick as SELECT MODE keys it ("world:<folder>" when it is our world, "srv:<address>"), else null. */
+    public static String picked() {
+        if (dest == null) return null;
+        String kind = str(dest.get("kind"));
+        if ("world".equals(kind)) return str(dest.get("host")).equals(me) ? "world:" + str(dest.get("name")) : null;
+        return str(dest.get("address")).isEmpty() ? null : "srv:" + str(dest.get("address"));
+    }
     /** Something for the hub badge: invites to us + requests we decide. */
     public static int badge() { return invites.size() + (leading ? pending.size() : 0); }
 
@@ -820,13 +827,11 @@ public final class Party {
     public static float wheel;
     private static String confirm;
     private static long confirmAt;
-    private static boolean destOpen;
 
     /** The rect our open panels cover (MainMenu keeps clicks below them out), from last frame's state. */
     public static float[] modal(float W, float H) {
         if (voiceOpen) return new float[] {W / 2 - 190, Math.max(20, H / 2 - 170), 380, 340};
         if (popFor != null && popAt != null) return popRect(W, H);
-        if (destOpen) return destRect(W, H);
         if (drawerOpen) return new float[] {W - 336, 52, 324, H - 64};
         return null;
     }
@@ -840,7 +845,6 @@ public final class Party {
         if (!linked || !loaded) { offline(W, H); return; }
         boolean party = members.size() > 1;
         if (party) play(W - 16 - 250, playBottom, 250, screen);
-        else destOpen = false;
         chatBox(chatX, chatBottom, Math.min(300, W * 0.36f), party);
         cards(W);
         if (!note.isEmpty() && System.currentTimeMillis() - noteAt < 5000) {
@@ -856,7 +860,6 @@ public final class Party {
         // panels (last: on top)
         drawerA = Config.calm() ? (drawerOpen ? 1 : 0) : Math.max(0, Math.min(1, drawerA + (drawerOpen ? 1 : -1) * Gfx.dt * 9));
         if (drawerA > 0) drawer(W, H);
-        if (destOpen) destPicker(W, H);
         if (popFor != null) pop(W, H);
         voiceA = Config.calm() ? (voiceOpen ? 1 : 0) : Math.max(0, Math.min(1, voiceA + (voiceOpen ? 1 : -1) * Gfx.dt * 10));
         if (voiceA > 0) voicePanel(W, H);
@@ -898,7 +901,6 @@ public final class Party {
     public static void pause(float W, float H) {
         if (!linked || !loaded) { offline(W, H); return; }
         typing = false;
-        destOpen = false;
         if (panelOpen()) MainMenu.box(0, 0, W, H); // our panels take every click while open
         drawerA = Config.calm() ? (drawerOpen ? 1 : 0) : Math.max(0, Math.min(1, drawerA + (drawerOpen ? 1 : -1) * Gfx.dt * 9));
         if (drawerA > 0) drawer(W, H);
@@ -986,28 +988,20 @@ public final class Party {
 
     // ---------------- PLAY / READY card (bottom right)
 
-    private static float cardX, cardTop;
-    private static int destKind = PartyPick.SERVER;
-
-    private static float[] destRect(float W, float H) { return new float[] {cardX, Math.max(60, cardTop - 46 - 220), 250, 220}; }
-
     /**
-     * The party card (bottom right): what was picked, who is ready, the countdown; the leader's SURVIVAL / MULTIPLAYER
-     * picks above it; READY UP for members; REJOIN while the party plays.
+     * The party card (bottom right): what was picked, who is ready, the countdown; the leader's SELECT MODE above it
+     * (the pick on the card opens it too); READY UP for members; REJOIN while the party plays.
      */
     private static void play(float x, float bottom, float w, Object screen) {
         String kind = dest == null ? "" : str(dest.get("kind"));
         boolean world = "world".equals(kind), pending = world && yes(dest.get("pending"));
         long now = System.currentTimeMillis(), left = startAt > now ? startAt - now : 0;
         float h = 104, y = bottom - h;
-        cardX = x;
-        cardTop = y;
-        if (leading && !live) { // the leader's two picks
-            float hw = (w - 6) / 2, py = y - 8 - 30;
-            if (pickBtn("ppw", "SURVIVAL", "host", x, py, hw, 30, world)) pick(PartyPick.WORLD, screen);
-            if (MainMenu.over(x, py, hw, 30)) MainMenu.tip("Pick one of your worlds: it opens for the party when everyone is ready");
-            if (pickBtn("pps", "MULTIPLAYER", "server", x + hw + 6, py, hw, 30, "server".equals(kind))) pick(PartyPick.SERVER, screen);
-            if (MainMenu.over(x + hw + 6, py, hw, 30)) MainMenu.tip("Pick a server from your list: you all join when everyone is ready");
+        boolean picks = leading && !live && left == 0;
+        if (picks) { // the leader's SELECT MODE (Fortnite's mode button over PLAY)
+            float py = y - 8 - 30;
+            if (pickBtn("ppm", dest == null ? "SELECT MODE" : "CHANGE MODE", "discover", x, py, w, 30, dest == null)) PlaySelect.open(-1, true, screen);
+            if (MainMenu.over(x, py, w, 30)) MainMenu.tip("Pick a world or server: your party joins when everyone is ready");
         }
         MainMenu.glass(x, y, w, h);
         int rd = 0, total = 0;
@@ -1024,7 +1018,7 @@ public final class Party {
         }
         // what was picked
         String dn, sub;
-        if (dest == null) { dn = leading ? "Pick where to play" : "The leader picks where to play"; sub = leading ? "SURVIVAL or MULTIPLAYER above" : "Then ready up here"; }
+        if (dest == null) { dn = leading ? "Pick where to play" : "The leader picks where to play"; sub = leading ? "SELECT MODE above" : "Then ready up here"; }
         else if (world) {
             dn = str(dest.get("name"));
             boolean mine = str(dest.get("host")).equals(me);
@@ -1034,9 +1028,15 @@ public final class Party {
             sub = "Server · " + str(dest.get("address"));
         }
         float ry = y + 26;
-        Gfx.rect(x + 8, ry, w - 16, 34, 7, Gfx.a(Gfx.ICE, 0.035f));
-        ModIcons.draw(world ? "host" : "server", x + 16, ry + 9, 16, dest == null ? Gfx.MUT : Th.ac2);
-        boolean clr = leading && dest != null && !live;
+        boolean rowHv = picks && MainMenu.over(x + 8, ry, w - 16 - (dest != null ? 30 : 0), 34);
+        Gfx.rect(x + 8, ry, w - 16, 34, 7, Gfx.a(Gfx.ICE, 0.035f + (rowHv ? 0.05f : 0)));
+        String pk = picked();
+        if (dest == null) ModIcons.draw("discover", x + 16, ry + 9, 16, Gfx.MUT);
+        else if (pk != null || !world) PlaySelect.pickIcon(pk != null ? pk : "srv:" + str(dest.get("address")), dn, x + 13, ry + 6, 22);
+        else ModIcons.draw("host", x + 16, ry + 9, 16, Th.ac2);
+        if (rowHv) MainMenu.tip("Change the mode");
+        if (rowHv && MainMenu.hit(x + 8, ry, w - 16 - (dest != null ? 30 : 0), 34)) PlaySelect.open(-1, true, screen);
+        boolean clr = picks && dest != null;
         float tw = w - 16 - 32 - (clr ? 30 : 10);
         Gfx.text(Gfx.SEMI, 11.5f, x + 40, ry + 12, dest == null ? Gfx.SUB : Gfx.ICE, MainMenu.fit(Gfx.SEMI, 11.5f, dn, 0, tw));
         Gfx.text(Gfx.UI, 9.5f, x + 40, ry + 25, Gfx.SUB, MainMenu.fit(Gfx.UI, 9.5f, sub, 0, tw));
@@ -1069,7 +1069,7 @@ public final class Party {
         }
     }
 
-    /** SURVIVAL / MULTIPLAYER pick button above the card (selected = what is picked now). */
+    /** The leader's SELECT MODE button above the card (highlighted until something is picked). */
     private static boolean pickBtn(String id, String label, String icon, float x, float y, float w, float h, boolean sel) {
         boolean hv = MainMenu.over(x, y, w, h);
         float t = MainMenu.an(id, hv);
@@ -1090,33 +1090,6 @@ public final class Party {
         int col = !enabled ? Gfx.MUT : primary ? 0xFFFFFFFF : 0xFF7EE787;
         Gfx.textC(Gfx.SEMI, 12, x + w / 2, y + h / 2 + (down ? 1 : 0), col, label, 1.6f);
         return enabled && MainMenu.hit(x, y, w, h);
-    }
-
-    private static void destPicker(float W, float H) {
-        float[] r = destRect(W, H);
-        MainMenu.inModal = true;
-        float x = r[0], y = r[1], w = r[2], h = r[3];
-        Gfx.rect(x, y + 4, w, h, 10, Gfx.a(Gfx.BLACK, 0.4f));
-        Gfx.rect(x, y, w, h, 10, Gfx.a(Gfx.CARD, 0.97f));
-        Gfx.ring(x, y, w, h, 10, 1, Gfx.LN2);
-        boolean worlds = destKind == PartyPick.WORLD;
-        Gfx.text(Gfx.MONO, 8.5f, x + 14, y + 16, Gfx.SUB, worlds ? "PICK A WORLD" : "PICK A SERVER", false, 1.4f);
-        List<String[]> list = worlds ? PartyPick.worlds() : QuickJoin.list(); // worlds: {folder, name}; servers: {name, address}
-        float yy = y + 28;
-        if (list.isEmpty()) Gfx.text(Gfx.UI, 11, x + 14, yy + 14, Gfx.SUB, worlds ? "Create a world in Singleplayer first." : "Add servers in Multiplayer first.");
-        for (String[] s : list) {
-            if (yy + 30 > y + h - 8) break;
-            String title = worlds ? s[1] : s[0], line = worlds ? s[0] : s[1];
-            boolean sel = dest != null && (worlds ? s[0].equals(str(dest.get("name"))) : s[1].equalsIgnoreCase(str(dest.get("address"))));
-            boolean hv = MainMenu.over(x + 6, yy, w - 12, 28);
-            Gfx.rect(x + 6, yy, w - 12, 28, 6, sel ? Gfx.a(Gfx.ICE, 0.12f) : Gfx.a(Gfx.ICE, hv ? 0.07f : 0));
-            Gfx.text(Gfx.SEMI, 11, x + 16, yy + 10, Gfx.ICE, MainMenu.fit(Gfx.SEMI, 11, title, 0, w - 40));
-            Gfx.text(Gfx.UI, 9, x + 16, yy + 21, Gfx.SUB, MainMenu.fit(Gfx.UI, 9, line, 0, w - 40));
-            if (MainMenu.hit(x + 6, yy, w - 12, 28)) { if (worlds) pickWorld(s[0]); else pickServer(s[1], s[0]); destOpen = false; }
-            yy += 30;
-        }
-        MainMenu.inModal = false;
-        if (MainMenu.clickNow() && !MainMenu.overRaw(x, y, w, h)) { destOpen = false; MainMenu.eat(); }
     }
 
     private static String normal(String ip) {
@@ -1216,8 +1189,8 @@ public final class Party {
             return true;
         }
         if (!typing) {
-            if (action == Input.PRESS && k == 256 && (voiceOpen || popFor != null || destOpen || drawerOpen)) {
-                if (voiceOpen) voiceOpen = false; else if (popFor != null) popFor = null; else if (destOpen) destOpen = false; else drawerOpen = false;
+            if (action == Input.PRESS && k == 256 && (voiceOpen || popFor != null || drawerOpen)) {
+                if (voiceOpen) voiceOpen = false; else if (popFor != null) popFor = null; else drawerOpen = false;
                 return true;
             }
             if (action == Input.PRESS && (k == 257 || k == 335) && MainMenu.title && members.size() > 1 && !Input.menuOpen) { typing = true; return true; }

@@ -84,7 +84,7 @@ public final class MainMenu {
     private static Field fFading, fFadeStart, fSplash;
     private static boolean looked, legacy;
     /** our title screen is drawn this frame (every click on it is ours) */
-    public static boolean title, pause, packs, pick;
+    public static boolean title, pause, packs;
     private static boolean pressed, click;
     private static long shownAt;
     /** the title screen whose widgets we removed (rebuilt by {@link #restoreVanilla}) and the splash vanilla picked for it */
@@ -139,7 +139,7 @@ public final class MainMenu {
     /** Before the in-game menu each frame. */
     public static void frame(int fbW, int fbH) {
         boolean was = title;
-        title = pause = packs = pick = false;
+        title = pause = packs = false;
         click = pressed;
         pressed = false;
         nb = 0;
@@ -149,15 +149,15 @@ public final class MainMenu {
         if (cTitle == null) return;
         QuickJoin.track();
         Object s = Game.screen();
-        if (s == null) { panelOpen = false; return; }
+        if (s == null) { panelOpen = false; PlaySelect.close(); return; }
         boolean isTitle = cTitle.isInstance(s);
+        if (!isTitle) PlaySelect.close(); // SELECT MODE lives on our title screen only
         Gfx.minPx = 9; // corner text and labels stay legible in small windows
         boolean r0 = Gfx.round;
         Gfx.round = Th.round(); // v6: rounded buttons, chips and glass
         try {
             if (isTitle) {
                 title = true;
-                PartyPick.title();
                 if (!was) shownAt = System.nanoTime();
                 strip(s);
                 stripped = s;
@@ -166,13 +166,6 @@ public final class MainMenu {
                 Friends.title(s);
                 units(Gfx.base);
                 WorldShare.card(Gfx.fbW / Gfx.s, 56);
-            } else if (!Input.menuOpen && PartyPick.screen(s) != PartyPick.NONE) {
-                // the party leader picks on the game's own world / server list: SELECT instead of play / join
-                pick = true;
-                units(Gfx.base);
-                tip = null;
-                PartyPick.draw(s, Gfx.fbW / Gfx.s);
-                if (tip != null) tooltip(Gfx.fbW / Gfx.s, Gfx.fbH / Gfx.s);
             } else if (!Input.menuOpen && packScreen(s)) {
                 // the game's resource pack screen: a vanilla-style GET PACKS button in the footer row opens the Modrinth browser
                 packs = true;
@@ -258,7 +251,7 @@ public final class MainMenu {
     public static void restoreVanilla() {
         Object s = stripped;
         stripped = null;
-        title = pause = pick = false;
+        title = pause = false;
         if (s == null || s != Game.screen()) return;
         try {
             if (legacy && fSplash != null && splash != null) fSplash.set(s, splash);
@@ -327,8 +320,7 @@ public final class MainMenu {
     /** Mouse press from the input chain while no Nether menu is open; true swallows it. */
     public static boolean press(int b) {
         if (title) { if (b == 0) pressed = true; return true; }
-        if (pick && b == 0 && PartyPick.press()) return true;
-        if ((pause || packs || pick) && b == 0) {
+        if ((pause || packs) && b == 0) {
             float x = fx(), y = fy();
             for (int i = 0; i < nb; i += 4) if (x >= boxes[i] && y >= boxes[i + 1] && x < boxes[i] + boxes[i + 2] && y < boxes[i + 1] + boxes[i + 3]) { pressed = true; return true; }
         }
@@ -400,7 +392,7 @@ public final class MainMenu {
         boolean nav = navOn();
         panelX = nav ? W - PW - 18 : 12;
         panelY = nav ? TitleNav.H + 4 : 52;
-        modal = panelOpen ? new float[] {panelX, panelY, PW, PH} : Party.modal(W, H);
+        modal = PlaySelect.isOpen() ? new float[] {0, 0, W, H} : panelOpen ? new float[] {panelX, panelY, PW, PH} : Party.modal(W, H);
         tip = null;
         boolean inPanel = MX >= panelX && MY >= panelY && MX < panelX + PW && MY < panelY + PH; // raw test: over() is false under the open panel
         if (panelOpen && click && !inPanel && !inside(custBox)) { panelOpen = false; click = false; modal = null; }
@@ -427,6 +419,7 @@ public final class MainMenu {
         if (panelOpen) panel(W, H);
         else panelA = 0;
         if (tip != null && !panelOpen) tooltip(W, H);
+        select(W, H);
         // dev: -Dnether.titleClick=<button index> presses that button once the screen has settled; -Dnether.titlePanel=1 opens the quick panel
         String dev = System.getProperty("nether.titleClick");
         if (dev != null && t >= 1 && (System.nanoTime() - shownAt) > 2e9) { System.clearProperty("nether.titleClick"); act(Integer.parseInt(dev), screen); }
@@ -504,69 +497,81 @@ public final class MainMenu {
         playBlock(px, bottom, pw, scr, party);
         footer(W, H, false);
         // the bar before the party panels: its PARTY chip toggles the drawer, which closes on clicks elsewhere
-        if (TitleNav.draw(fbW, fbH, fx(), fy(), click, true)) click = false;
+        if (TitleNav.draw(fbW, fbH, fx(), fy(), click && !PlaySelect.isOpen(), true)) click = false;
         Party.title(W, H, 24, bottom, bottom, scr);
         Gfx.alpha = a0;
         if (panelOpen) panel(W, H);
         else panelA = 0;
         if (tip != null && !panelOpen) tooltip(W, H);
         TitleNav.drawOver(fbW, fbH);
+        units(fbW / W);
+        select(W, H);
         units(Gfx.s);
         String dev = System.getProperty("nether.titleClick");
         if (dev != null && t >= 1 && (System.nanoTime() - shownAt) > 2e9) { System.clearProperty("nether.titleClick"); act(Integer.parseInt(dev), scr); }
         if ("1".equals(System.getProperty("nether.titlePanel"))) { System.clearProperty("nether.titlePanel"); panelOpen = true; }
         String pg = System.getProperty("nether.titlePage"); // dev: -Dnether.titlePage=<0..5> opens that page once settled
         if (pg != null && t >= 1 && (System.nanoTime() - shownAt) > 2e9) { System.clearProperty("nether.titlePage"); TitleNav.go(Integer.parseInt(pg)); }
-        if ("1".equals(System.getProperty("nether.playModes"))) { System.clearProperty("nether.playModes"); modesOpen = true; }
+        if ("1".equals(System.getProperty("nether.playModes"))) { System.clearProperty("nether.playModes"); PlaySelect.open(-1, Party.leads(), scr); }
+    }
+
+    /** SELECT MODE over everything while it is open, with its own tooltip. */
+    private static void select(float W, float H) {
+        if (!PlaySelect.isOpen()) return;
+        String under = tip;
+        tip = null;
+        PlaySelect.draw(W, H);
+        if (tip != null) tooltip(W, H);
+        else tip = under;
     }
 
     // ---------------------------------------------------------------- PLAY (bottom right)
 
-    private static boolean modesOpen;
-    private static float modesA;
-
-    /** Modes: {key, title, subtitle}; key "single", "multi" or "srv:<address>". */
-    private static java.util.List<String[]> modes() {
-        java.util.List<String[]> l = new java.util.ArrayList<>();
-        l.add(new String[] {"single", "Singleplayer", "Your worlds"});
-        l.add(new String[] {"multi", "Multiplayer", "Server list"});
-        int n = 0;
-        for (String[] s : QuickJoin.list()) {
-            if (n++ >= 3) break;
-            l.add(new String[] {"srv:" + s[1], s[0].isEmpty() ? s[1] : s[0], s[1]});
-        }
-        return l;
-    }
-
+    /**
+     * What PLAY starts (SELECT MODE sets it): {key, title, subtitle}; key "world:<folder>", "srv:<address>", or the
+     * older "single" / "multi" (the game's own lists).
+     */
     private static String[] mode() {
         String k = Config.str("menu", "playMode", "single");
-        for (String[] m : modes()) if (m[0].equals(k)) return m;
-        return modes().get(0);
+        if (k.startsWith("world:")) {
+            String f = k.substring(6);
+            if (PlaySelect.isSave(f)) return new String[] {k, PlaySelect.worldName(f), "Singleplayer world"};
+        } else if (k.startsWith("srv:")) {
+            String a = k.substring(4);
+            for (String[] s : QuickJoin.list()) if (PlaySelect.same(s[1], a)) return new String[] {k, s[0].isEmpty() ? a : s[0], "Server · " + a};
+            if (!a.isEmpty()) return new String[] {k, a, "Server · " + a};
+        } else if (k.equals("multi")) return new String[] {"multi", "Multiplayer", "Server list"};
+        return new String[] {"single", "Singleplayer", "Your worlds"};
     }
 
     private static void play(String[] m, Object scr) {
-        Config.set("menu", "playMode", m[0]);
         if (m[0].equals("single")) act(SINGLE, scr);
         else if (m[0].equals("multi")) act(MULTI, scr);
+        else if (m[0].startsWith("world:")) PartyPick.openWorld(m[0].substring(6));
         else QuickJoin.join(m[1], m[0].substring(4), scr);
     }
 
-    /** Solo: mode card + big PLAY. Party: SINGLEPLAYER / MULTIPLAYER over the party's own card (Party.title draws it). */
+    /** Solo: mode card (opens SELECT MODE) + big PLAY. Party: the party's own card (Party.title draws it). */
     private static void playBlock(float x, float bottom, float w, Object scr, boolean party) {
-        if (party) { modesOpen = false; return; } // Party.title draws the party's card (SURVIVAL / MULTIPLAYER picks on it)
+        if (party) return; // Party.title draws the party's card (SELECT MODE above it)
         String[] m = mode();
-        float ph = 64, mh = 42, my = bottom - ph - 8 - mh;
-        // mode card: what PLAY starts; opens the list of modes
+        float ph = 64, mh = 46, my = bottom - ph - 8 - mh;
+        // mode card: what PLAY starts; opens SELECT MODE
         boolean mhv = over(x, my, w, mh);
-        float mt = an("pmode", mhv || modesOpen);
+        float mt = an("pmode", mhv || PlaySelect.isOpen());
         Gfx.rect(x, my, w, mh, 8, Gfx.mix(Gfx.a(Gfx.CARD, 0.82f), Gfx.CARD2, mt));
         Gfx.ring(x, my, w, mh, 8, 1, Gfx.mix(Gfx.a(Gfx.ICE, 0.1f), Gfx.LN2, mt));
-        Gfx.text(Gfx.SEMI, 8.5f, x + 14, my + 13, Gfx.SUB, "MODE", false, 1.4f);
-        Gfx.text(Gfx.SEMI, 13, x + 14, my + 28, Gfx.ICE, fit(Gfx.SEMI, 13, m[1], 0, w - 60));
-        float cx = x + w - 22, cyy = my + mh / 2;
-        Menu.drawChev(cx, cyy, modesOpen, Gfx.mix(Gfx.DIM, Gfx.ICE, mt));
-        if (mhv) tip("Change what PLAY starts");
-        if (hit(x, my, w, mh)) modesOpen = !modesOpen;
+        boolean pick = m[0].startsWith("world:") || m[0].startsWith("srv:");
+        float tx = x + 14;
+        if (pick) { PlaySelect.icon(m[0], m[1], x + 9, my + 8, 30); tx = x + 48; }
+        else { ModIcons.draw(m[0].equals("multi") ? "server" : "world", x + 16, my + mh / 2 - 9, 18, Th.ac2); tx = x + 46; }
+        Gfx.text(Gfx.SEMI, 8.5f, tx, my + 14, Gfx.SUB, "MODE", false, 1.4f);
+        Gfx.text(Gfx.SEMI, 13, tx, my + 31, Gfx.ICE, fit(Gfx.SEMI, 13, m[1], 0, x + w - 74 - tx));
+        String ch = "CHANGE";
+        float cw = Gfx.width(Gfx.SEMI, 9.5f, ch, 1.2f);
+        Gfx.text(Gfx.SEMI, 9.5f, x + w - 14 - cw, my + mh / 2, Gfx.mix(Gfx.DIM, Th.ac2, mt), ch, false, 1.2f);
+        if (mhv) tip(m[2] + " · click to change");
+        if (hit(x, my, w, mh)) PlaySelect.open(-1, false, scr);
         // PLAY
         float py = bottom - ph;
         boolean hv = over(x, py, w, ph), down = hv && Input.btn[0];
@@ -574,31 +579,7 @@ public final class MainMenu {
         Gfx.rect(x - 4, py - 2 + 6, w + 8, ph, 12, Gfx.a(Th.ac, 0.18f * (0.5f + 0.5f * t)));
         Gfx.rectG(x, py + (down ? 1 : 0), w, ph, 8, Gfx.mix(Th.ac2, 0xFFFFFFFF, 0.12f * t), down ? Gfx.mix(Th.ac, Gfx.BLACK, 0.2f) : Th.ac);
         Gfx.textC(Gfx.HEAD, 30, x + w / 2, py + ph / 2 + (down ? 1 : 0), 0xFFFFFFFF, "PLAY", 3f);
-        if (hit(x, py, w, ph)) { modesOpen = false; play(m, scr); }
-        // modes list, rising from the mode card
-        modesA = Config.calm() ? (modesOpen ? 1 : 0) : Math.max(0, Math.min(1, modesA + (modesOpen ? 1 : -1) * Gfx.dt * 10));
-        if (modesA <= 0) return;
-        java.util.List<String[]> l = modes();
-        float rh = 44, lh = l.size() * rh + 12, ly = my - 8 - lh + (1 - modesA) * 8;
-        float a0 = Gfx.alpha;
-        Gfx.alpha = a0 * modesA;
-        Gfx.rect(x, ly + 4, w, lh, 10, Gfx.a(Gfx.BLACK, 0.4f));
-        Gfx.rect(x, ly, w, lh, 10, Gfx.a(Gfx.CARD, 0.97f));
-        Gfx.ring(x, ly, w, lh, 10, 1, Gfx.LN2);
-        boolean inList = over(x, ly, w, lh);
-        for (int i = 0; i < l.size(); i++) {
-            String[] o = l.get(i);
-            float ry = ly + 6 + i * rh;
-            boolean rv = over(x + 6, ry, w - 12, rh), sel = o[0].equals(m[0]);
-            float rt = an("pm" + i, rv);
-            if (rt > 0.01f || sel) Gfx.rect(x + 6, ry, w - 12, rh, 6, Gfx.a(Gfx.ICE, 0.05f * rt + (sel ? 0.05f : 0)));
-            if (i == 2) Gfx.rect(x + 14, ry - 1, w - 28, 1, 0, Gfx.LN);
-            Gfx.text(Gfx.SEMI, 12, x + 18, ry + 16, Gfx.ICE, fit(Gfx.SEMI, 12, o[1], 0, w - 40));
-            Gfx.text(Gfx.UI, 10, x + 18, ry + 31, Gfx.DIM, fit(Gfx.UI, 10, o[2], 0, w - 40));
-            if (modesOpen && hit(x + 6, ry, w - 12, rh)) { Config.set("menu", "playMode", o[0]); modesOpen = false; }
-        }
-        Gfx.alpha = a0;
-        if (modesOpen && click && !inList && !over(x, my, w, mh)) { modesOpen = false; click = false; }
+        if (hit(x, py, w, ph)) play(m, scr);
     }
 
     private static boolean smallBtn(String id, String label, float x, float y, float w, float h) {
@@ -1138,12 +1119,6 @@ public final class MainMenu {
             if (Party.live()) { Party.lockedNote(); return; }
         }
         openRaw(i, screen);
-    }
-
-    /** The title screen we replaced (our lobby), e.g. after a party pick on the game's lists. */
-    public static void toTitle() {
-        Object t = stripped;
-        if (t != null) open(Game.mc(), t);
     }
 
     /** The action itself, without the party's rules. */

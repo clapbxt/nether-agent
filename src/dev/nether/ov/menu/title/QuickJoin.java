@@ -53,6 +53,8 @@ public final class QuickJoin {
     private static final Map<String, Srv> extra = new HashMap<>();
     private static volatile boolean busy;
     private static long fileM = -2, kickAt, trackAt;
+    /** SELECT MODE is open until then: every server in the list is pinged, not only the card's rows */
+    private static long allUntil;
     /** connecting failed once on this version: the card stays hidden */
     private static boolean broken;
 
@@ -106,6 +108,29 @@ public final class QuickJoin {
         return l;
     }
 
+    /** Every server of the multiplayer list, last played first, all of them pinged while this keeps being called. */
+    static List<Srv> all() {
+        allUntil = System.currentTimeMillis() + 3000;
+        kick();
+        return rows(Integer.MAX_VALUE);
+    }
+
+    /** The list's entry for this address (no ping, no reread), else null. */
+    static Srv find(String ip) {
+        for (Srv s : servers) if (PlaySelect.same(s.ip, ip)) return s;
+        return null;
+    }
+
+    /** A server's favicon (its initial on a tile while it has none). */
+    static void icon(Srv s, float x, float y, float size) {
+        if (s.img != null && (s.tex == null || !Gfx.hasTexture(s.tex))) { s.tex = "menu.srv." + Integer.toHexString(s.ip.toLowerCase(Locale.ROOT).hashCode()); Gfx.texture(s.tex, s.img, true); }
+        if (s.tex != null && Gfx.hasTexture(s.tex)) Gfx.image(s.tex, x, y, size, size, 0xFFFFFFFF, 4);
+        else {
+            Gfx.rect(x, y, size, size, 4, Gfx.S3);
+            Gfx.textC(Gfx.HEAD, size * 0.54f, x + size / 2, y + size / 2, Gfx.DIM, s.name.isEmpty() ? "?" : s.name.substring(0, 1).toUpperCase(Locale.ROOT), 0);
+        }
+    }
+
     static void card(float x, float bottom, float w, float topLimit, Object screen) {
         if (broken) return;
         int want = (int) Math.round(MainMenu.MODULE.num("servers"));
@@ -133,12 +158,7 @@ public final class QuickJoin {
                 Gfx.rect(x + 4, ry, w - 8, rh, 4, Gfx.a(Gfx.ICE, 0.06f * t));
             }
             float ix = x + 14, iy = ry + (rh - 26) / 2;
-            if (s.img != null && (s.tex == null || !Gfx.hasTexture(s.tex))) { s.tex = "menu.srv." + Integer.toHexString(s.ip.toLowerCase(Locale.ROOT).hashCode()); Gfx.texture(s.tex, s.img, true); }
-            if (s.tex != null && Gfx.hasTexture(s.tex)) Gfx.image(s.tex, ix, iy, 26, 26, 0xFFFFFFFF, 4);
-            else {
-                Gfx.rect(ix, iy, 26, 26, 4, Gfx.S3);
-                Gfx.textC(Gfx.HEAD, 14, ix + 13, iy + 13, Gfx.DIM, s.name.isEmpty() ? "?" : s.name.substring(0, 1).toUpperCase(Locale.ROOT), 0);
-            }
+            icon(s, ix, iy, 26);
             // right column: signal bars over players, or JOIN on hover
             float rx = x + w - 14, tx = ix + 36;
             String pl = s.state == 2 && s.online >= 0 ? s.online + "/" + s.max : s.state == 3 ? "OFFLINE" : "";
@@ -162,7 +182,7 @@ public final class QuickJoin {
     }
 
     /** Five signal bars by latency (sweeping while pinging, red when unreachable). */
-    private static void bars(float x, float y, Srv s) {
+    static void bars(float x, float y, Srv s) {
         int lit = s.state != 2 ? 0 : s.ping < 150 ? 5 : s.ping < 300 ? 4 : s.ping < 600 ? 3 : s.ping < 1000 ? 2 : 1;
         int sweep = s.state == 1 || (s.state == 0 && MainMenu.MODULE.bool("ping")) ? (Config.calm() ? 2 : (int) (System.currentTimeMillis() / 140 % 5)) : -1;
         for (int i = 0; i < 5; i++) {
@@ -223,7 +243,7 @@ public final class QuickJoin {
         if (busy || now < kickAt) return;
         kickAt = now + 2000;
         final boolean ping = MainMenu.MODULE.bool("ping");
-        final List<Srv> want = rows((int) Math.round(MainMenu.MODULE.num("servers")));
+        final List<Srv> want = rows(now < allUntil ? Integer.MAX_VALUE : (int) Math.round(MainMenu.MODULE.num("servers")));
         busy = true;
         Thread t = new Thread(() -> {
             try {

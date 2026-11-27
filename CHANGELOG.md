@@ -4,6 +4,13 @@ What changed in each client release, newest first. Add a line under **Unreleased
 change: what a player notices, not how it was done. At release, move the lines under the new version.
 
 ## Unreleased
+- New SELECT MODE screen for picking where to play: your worlds and servers as cards with their icons, game mode,
+  version, last played, server status, ping and players, plus search. Type a server address in the search box to
+  join a server that isn't in your list.
+- Parties work like Fortnite and Valorant now: the leader presses SELECT MODE (or clicks the pick on the party card)
+  and picks a world or server, everyone sees it and readies up, and you all load in together. This replaces picking
+  on Minecraft's own world and server screens, and works the same on 1.8.9 and 1.12.2.
+- Solo, the MODE card above PLAY opens the same screen, so PLAY can start a specific world or server directly.
 - Faster frames on 1.21.5 and newer (OpenGL): Performance merges the game's per-buffer GPU fences into one per frame
   and drops needless framebuffer switches after each clear. Measured on 1.21.11 with Sodium, Lithium,
   ImmediatelyFast, BadOptimizations and EntityCulling: about 27% more FPS and 13% better 1% lows than before; plain
