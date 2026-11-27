@@ -196,17 +196,33 @@ public final class Leave {
         return null;
     }
 
+    /**
+     * The widget's base class (AbstractWidget: width, height, x, y are its first four ints, every version) and those four
+     * int fields. Looked for from the top of the class chain down: subclasses can declare their own four ints first (26.x
+     * SpriteIconButton: sprite width / height ...), and moving those instead left the button in place without its icon.
+     */
+    private static Field[] box(Object w) {
+        List<Class<?>> chain = new ArrayList<>();
+        for (Class<?> k = w.getClass(); k != null && k != Object.class; k = k.getSuperclass()) chain.add(0, k);
+        for (Class<?> k : chain) {
+            List<Field> ints = new ArrayList<>();
+            for (Field f : k.getDeclaredFields()) if (f.getType() == int.class && !Modifier.isStatic(f.getModifiers())) ints.add(f);
+            if (ints.size() < 4) continue;
+            Field[] b = new Field[4];
+            for (int i = 0; i < 4; i++) { b[i] = ints.get(i); b[i].setAccessible(true); }
+            return b;
+        }
+        return null;
+    }
+
     /** A 1.14+ widget's {x, y, width, height} in GUI px (AbstractWidget's first four ints: width, height, x, y), or null. */
     public static int[] rect(Object w) {
         try {
-            for (Class<?> k = w.getClass(); k != null && k != Object.class; k = k.getSuperclass()) {
-                List<Field> ints = new ArrayList<>();
-                for (Field f : k.getDeclaredFields()) if (f.getType() == int.class && !Modifier.isStatic(f.getModifiers())) ints.add(f);
-                if (ints.size() < 4) continue;
-                int[] v = new int[4];
-                for (int i = 0; i < 4; i++) { ints.get(i).setAccessible(true); v[i] = ints.get(i).getInt(w); }
-                if (v[0] >= 20 && v[1] >= 16 && v[1] <= 24) return new int[] {v[2], v[3], v[0], v[1]};
-            }
+            Field[] b = box(w);
+            if (b == null) return null;
+            int[] v = new int[4];
+            for (int i = 0; i < 4; i++) v[i] = b[i].getInt(w);
+            if (v[0] >= 20 && v[1] >= 16 && v[1] <= 24) return new int[] {v[2], v[3], v[0], v[1]};
         } catch (Throwable ignored) { }
         return null;
     }
@@ -217,17 +233,13 @@ public final class Leave {
     /** Moves a 1.14+ widget to (x, y) GUI px (AbstractWidget's ints: width, height, x, y); false when it is not one. */
     public static boolean place(Object w, int x, int y) {
         try {
-            for (Class<?> k = w.getClass(); k != null && k != Object.class; k = k.getSuperclass()) {
-                List<Field> ints = new ArrayList<>();
-                for (Field f : k.getDeclaredFields()) if (f.getType() == int.class && !Modifier.isStatic(f.getModifiers())) ints.add(f);
-                if (ints.size() < 4) continue;
-                for (Field f : ints) f.setAccessible(true);
-                int ww = ints.get(0).getInt(w), hh = ints.get(1).getInt(w);
-                if (ww <= 0 || ww > 1000 || hh <= 0 || hh > 64) continue;
-                ints.get(2).setInt(w, x);
-                ints.get(3).setInt(w, y);
-                return true;
-            }
+            Field[] b = box(w);
+            if (b == null) return false;
+            int ww = b[0].getInt(w), hh = b[1].getInt(w);
+            if (ww <= 0 || ww > 1000 || hh <= 0 || hh > 64) return false;
+            b[2].setInt(w, x);
+            b[3].setInt(w, y);
+            return true;
         } catch (Throwable ignored) { }
         return false;
     }

@@ -241,8 +241,11 @@ public final class MainMenu {
         Object opts = Leave.button(ws, "menu.options");
         java.util.List<Object[]> wide = new java.util.ArrayList<>(), extras = new java.util.ArrayList<>();
         boolean friends = false;
+        Object modsIcon = null;
         for (Object w : ws) {
             if (w == back || w == quit || w == opts || !Leave.isButton(w)) continue;
+            // Mod Menu on 26.x puts its Mods button in the icon row as a 20 px square: shown as the wide Mods row instead
+            if (modsIcon == null && modMenu(w) && Leave.rect(w) != null && Leave.rect(w)[2] < 150) { modsIcon = w; continue; }
             int[] r = Leave.rect(w);
             String[] x = pauseExtra(w);
             if (x == null && r != null && r[2] >= 150) { wide.add(new Object[] {w, r[1]}); continue; }
@@ -254,7 +257,8 @@ public final class MainMenu {
         wide.sort((p, q) -> Integer.compare((Integer) p[1], (Integer) q[1]));
         for (Object w : new Object[] {opts}) if (w != null) Leave.place(w, -4000, -4000);
         for (Object[] e : extras) Leave.place(e[0], -4000, -4000);
-        int row = 3;
+        if (modsIcon != null) Leave.place(modsIcon, -4000, -4000);
+        int row = modsIcon != null ? 4 : 3;
         vanillaTip = null;
         for (Object[] w : wide) {
             int wy = br[1] + 24 * (row++ - 1);
@@ -267,6 +271,7 @@ public final class MainMenu {
         float W = Gfx.fbW / Gfx.s, H = Gfx.fbH / Gfx.s;
         float sz = 40, bx = br[0] * 2, by = br[1] * 2, bw = br[2] * 2, rx = bx + bw + 8, lx = bx - 8 - sz;
         if (wideButton(bx, by + 48, bw, "Nether")) Menu.openAt(Menu.lastCat);
+        if (modsIcon != null && wideButton(bx, by + 96, bw, "Mods", false)) Leave.click(modsIcon);
         // left: the game's options, wardrobe
         if (opts != null && squareButton("po", lx, by, sz, "options", "Options")) Leave.click(opts);
         if (squareButton("pw", lx, by + 48, sz, "wardrobe", "Wardrobe")) Menu.openAt(Menu.T_WARDROBE);
@@ -317,8 +322,15 @@ public final class MainMenu {
         return hit(x, y, sz, sz);
     }
 
-    /** A full-width button in the game's style with the fireball mark left of the label (units); true when clicked. */
-    private static boolean wideButton(float x, float y, float w, String label) {
+    /** Mod Menu's own pause button (its class or its text key). */
+    private static boolean modMenu(Object w) {
+        return w.getClass().getName().toLowerCase(Locale.ROOT).contains("modmenu") || Leave.says(w, "'modmenu.title'");
+    }
+
+    private static boolean wideButton(float x, float y, float w, String label) { return wideButton(x, y, w, label, true); }
+
+    /** A full-width button in the game's style, the fireball mark left of the label when mark (units); true when clicked. */
+    private static boolean wideButton(float x, float y, float w, String label, boolean mark) {
         float a0 = Gfx.alpha;
         Gfx.alpha = 1;
         boolean hov = over(x, y, w, 40), vf = Vanilla.font();
@@ -326,12 +338,12 @@ public final class MainMenu {
             Gfx.rect(x, y, w, 40, 0, hov ? 0xFF6F6F6F : 0xFF4A4A4A);
             Gfx.ring(x, y, w, 40, 0, 2, hov ? 0xFFFFFFFF : 0xFF000000);
         }
-        float tw = vf ? Vanilla.width(label) : Gfx.width(Gfx.SEMI, 11, label);
-        float cx = x + (w - (16 + 8 + tw)) / 2;
-        mark(cx, y + (40 - 18.9f) / 2, 16);
+        float tw = vf ? Vanilla.width(label) : Gfx.width(Gfx.SEMI, 11, label), mw = mark ? 24 : 0;
+        float cx = x + (w - (mw + tw)) / 2;
+        if (mark) mark(cx, y + (40 - 18.9f) / 2, 16);
         int col = legacy && hov ? 0xFFFFFFA0 : 0xFFFFFFFF;
-        if (vf) Vanilla.text(label, cx + 24, y + 12, col, true);
-        else Gfx.text(Gfx.SEMI, 11, cx + 24, y + 20, col, label);
+        if (vf) Vanilla.text(label, cx + mw, y + 12, col, true);
+        else Gfx.text(Gfx.SEMI, 11, cx + mw, y + 20, col, label);
         box(x, y, w, 40);
         Gfx.alpha = a0;
         return hit(x, y, w, 40);
