@@ -46,6 +46,7 @@ public final class QuickJoin {
         volatile int online = -1, max = -1;
         volatile long ping = -1, at;
         boolean last;
+        String err;
         Srv(String name, String ip, String icon64) { this.name = name; this.ip = ip; this.icon64 = icon64; }
     }
 
@@ -365,7 +366,8 @@ public final class QuickJoin {
         long now = System.currentTimeMillis();
         if (busy || now < kickAt) return;
         kickAt = now + 2000;
-        final boolean ping = MainMenu.MODULE.bool("ping");
+        // the game mode selector's server cards want their icons, like the game's own server list (which always pings)
+        final boolean ping = MainMenu.MODULE.bool("ping") || now - listedAt < 5000;
         final List<Srv> want = rows(now - listedAt < 5000 ? 12 : (int) Math.round(MainMenu.MODULE.num("servers"))); // the game mode selector shows up to 12: ping those too, for their icons
         busy = true;
         Thread t = new Thread(() -> {
@@ -453,6 +455,29 @@ public final class QuickJoin {
         }
     }
 
+    private static int proto;
+
+    /** The running game's protocol number (version.json in the client jar, 1.14+), else 47 (1.8). */
+    @SuppressWarnings("unchecked")
+    private static int protocol() {
+        if (proto != 0) return proto;
+        int p = 47;
+        try {
+            ClassLoader cl = Game.mc() != null ? Game.mc().getClass().getClassLoader() : QuickJoin.class.getClassLoader();
+            try (java.io.InputStream in = cl.getResourceAsStream("version.json")) {
+                if (in != null) {
+                    ByteArrayOutputStream b = new ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    for (int n; (n = in.read(buf)) > 0 && b.size() < (1 << 16); ) b.write(buf, 0, n);
+                    Object j = Json.parse(new String(b.toByteArray(), StandardCharsets.UTF_8));
+                    Object v = j instanceof Map ? ((Map<String, Object>) j).get("protocol_version") : null;
+                    if (v instanceof Number && ((Number) v).intValue() > 0) p = ((Number) v).intValue();
+                }
+            }
+        } catch (Throwable ignored) { }
+        return proto = p;
+    }
+
     /** Server List Ping (1.7+ status protocol): MOTD, players, favicon, then a ping/pong for latency. */
     @SuppressWarnings("unchecked")
     private static void ping(Srv s) {
@@ -485,7 +510,7 @@ public final class QuickJoin {
                 DataOutputStream h = new DataOutputStream(hb);
                 byte[] hn = host.getBytes(StandardCharsets.UTF_8);
                 h.writeByte(0);
-                varint(h, 47);
+                varint(h, protocol()); // the game's own: some anti-bot proxies drop status pings from versions they don't serve
                 varint(h, hn.length);
                 h.write(hn);
                 h.writeShort(port);
@@ -534,6 +559,7 @@ public final class QuickJoin {
             s.state = 2;
         } catch (Throwable t) {
             s.state = 3;
+            if (s.err == null) { s.err = String.valueOf(t); System.out.println("[nether-agent] quick join ping " + s.ip + ": " + t); }
         }
         s.at = System.currentTimeMillis();
     }

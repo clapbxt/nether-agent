@@ -1001,7 +1001,8 @@ public final class Party {
     private static float dScroll, dScrollT;
 
     private static float[] destRect(float W, float H) {
-        float w = Math.min(640, W - 40), h = Math.min(440, H - 60);
+        // most of the screen: room for the server / world cards (640 x 440 at least, as the screen allows)
+        float w = Math.min(Math.max(640, Math.min(1100, W * 0.72f)), W - 40), h = Math.min(Math.max(440, Math.min(760, H * 0.8f)), H - 60);
         return new float[] {(W - w) / 2, (H - h) / 2, w, h};
     }
 
