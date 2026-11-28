@@ -286,3 +286,5 @@ field_1482	c	I
 method_1522	l	()Lfxt;
 method_30277	c	()Lcom/mojang/blaze3d/textures/GpuTexture;
 method_68427	a	()I
+field_61504	m	Lglz;
+method_72776	d	()Z

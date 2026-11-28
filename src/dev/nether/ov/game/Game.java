@@ -811,6 +811,9 @@ public final class Game {
                 return Boolean.TRUE.equals(fld(o, l("aA", "field_74319_N"))) || Boolean.TRUE.equals(fld(o, l("aC", "field_74330_P")));
             }
             if (Boolean.TRUE.equals(fld(fld(mc, "field_1690"), "field_1842"))) return true;
+            // 1.21.9+: showDebugScreen() is also true while a debug entry such as F3+B hitboxes is on; only the F3 overlay hides the HUD
+            Object list = fld(mc, "field_61504");
+            if (list != null) { Object v = call(list, "method_72776"); if (v != null) return Boolean.TRUE.equals(v); }
             if (debug == null) debug = call(mc, "method_53526");
             if (debug == null) return Boolean.TRUE.equals(fld(fld(mc, "field_1690"), "field_1866")); // before 1.20.2: options.renderDebug
             return Boolean.TRUE.equals(call(debug, "method_53536"));
