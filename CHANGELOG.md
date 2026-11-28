@@ -4,6 +4,7 @@ What changed in each client release, newest first. Add a line under **Unreleased
 change: what a player notices, not how it was done. At release, move the lines under the new version.
 
 ## Unreleased
+- **Benchmark:** New Settings → Benchmark page. Spins the camera in your world and measures average FPS, 1% and 0.1% lows, slowest and fastest frame and a frame-time graph; "What does Nether cost?" repeats the run with the HUD, the performance fixes and then all of Nether switched off, so you can see whether Nether, your settings, your graphics card or Java is holding the frame rate back. Shows which graphics card the game really uses (integrated or dedicated), VSync / frame cap, render distance, shaders, memory, Java flags, mods and which Nether features are on, with plain findings, and copies a report to share.
 - Fixed the HUD and all Nether UI disappearing when hitboxes are turned on with F3+B (Minecraft 1.21.9 and newer).
 
 ## 1.0.2

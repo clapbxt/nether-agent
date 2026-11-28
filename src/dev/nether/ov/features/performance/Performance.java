@@ -42,13 +42,14 @@ public final class Performance extends Module {
     /** dev A/B: -Dnether.benchFeat=<name> turns that feature off in every other bench window. */
     static boolean benchOff(String feat) { return Hook.featOff && feat.equals(Hook.BENCH_FEAT); }
 
-    public boolean hudCache() { return enabled() && bool("hudCache") && !benchOff("hud"); }
+    public boolean hudCache() { return enabled() && !Bench.pausePerf && bool("hudCache") && !benchOff("hud"); }
 
     @Override public void tick() {
-        Hook.glErrSkip = enabled() && bool("gpuChecks");
-        Hook.fenceMerge = enabled() && bool("fences");
-        Hook.fbKeep = enabled() && bool("fbKeep");
-        Hook.preciseWait = enabled() && bool("preciseCap") && !benchOff("cap");
-        Culling.tick(enabled() && bool("cull") && !benchOff("cull"), enabled() && bool("beCull") && !benchOff("becull"));
+        boolean on = enabled() && !Bench.pausePerf; // the benchmark's "performance fixes off" runs
+        Hook.glErrSkip = on && bool("gpuChecks");
+        Hook.fenceMerge = on && bool("fences");
+        Hook.fbKeep = on && bool("fbKeep");
+        Hook.preciseWait = on && bool("preciseCap") && !benchOff("cap");
+        Culling.tick(on && bool("cull") && !benchOff("cull"), on && bool("beCull") && !benchOff("becull"));
     }
 }

@@ -37,6 +37,7 @@ import dev.nether.ov.features.lyrics.Karaoke;
 import dev.nether.ov.features.media.MediaPlayer;
 import dev.nether.ov.features.performance.BackgroundFps;
 import dev.nether.ov.features.performance.BackgroundReload;
+import dev.nether.ov.features.performance.Bench;
 import dev.nether.ov.features.performance.Performance;
 import dev.nether.ov.features.screenshots.Screenshots;
 import dev.nether.ov.features.visual.CustomSky;
@@ -371,6 +372,7 @@ public final class Modules {
     private static void hud(int fbW, int fbH, float[] chat) {
         Slow.mark("hud start");
         for (Module m : all) { m.tick(); Slow.mark2("tick ", m.id); }
+        if (Bench.hideHud) return; // the benchmark's "HUD hidden" run
         CROSSHAIR.sync();
         boxes(fbW, fbH, chat);
         boolean world = Input.inWorld() && !Game.hudHidden();

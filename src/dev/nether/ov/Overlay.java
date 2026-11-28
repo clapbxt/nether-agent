@@ -7,6 +7,8 @@ import java.nio.ByteBuffer;
 import dev.nether.ov.features.cosmetics.Capes;
 import dev.nether.ov.features.cosmetics.Cosmetics;
 import dev.nether.ov.features.performance.BackgroundFps;
+import dev.nether.ov.features.performance.Bench;
+import dev.nether.ov.features.performance.Performance;
 import dev.nether.ov.features.social.Discord;
 import dev.nether.ov.framework.Config;
 import dev.nether.ov.framework.FrameStats;
@@ -17,6 +19,7 @@ import dev.nether.ov.framework.Modules;
 import dev.nether.ov.framework.Slow;
 import dev.nether.ov.game.Game;
 import dev.nether.ov.game.Keybind;
+import dev.nether.ov.menu.BenchPage;
 import dev.nether.ov.menu.Menu;
 import dev.nether.ov.menu.title.MainMenu;
 import dev.nether.ov.menu.title.Splashes;
@@ -82,6 +85,8 @@ public final class Overlay {
             renderThread = Thread.currentThread();
             Game.frame++;
             if (!inited) init();
+            long t0 = System.nanoTime();
+            if (Bench.frame(t0)) { Performance.M.tick(); return; } // a benchmark run measuring the game without the overlay
             BackgroundFps.limit(window); // before the size check: a minimized window has no size
             long now = System.nanoTime();
             float dt = lastNs == 0 ? 0.016f : Math.min(0.1f, (now - lastNs) / 1e9f);
@@ -93,6 +98,7 @@ public final class Overlay {
             Plat.cur.size(window, sz);
             int fw = sz[0], fh = sz[1];
             if (fw <= 0 || fh <= 0) return;
+            Bench.fw = fw; Bench.fh = fh;
             Input.window = window;
             Input.ww = Math.max(1, sz[2]);
             Input.wh = Math.max(1, sz[3]);
@@ -126,6 +132,7 @@ public final class Overlay {
                     if ("0".equals(System.getProperty("nether.hub"))) { Menu.hub = false; if (tb != null) Menu.tab = Math.max(0, Math.min(Menu.TABS.length - 1, Integer.parseInt(tb))); } // dev: skip the hub (with -Dnether.tab)
                 }
             }
+            devBench();
             Config.tick();
             Slow.mark("Config");
             Th.tick();
@@ -148,6 +155,7 @@ public final class Overlay {
             Gfx.dt = dt;
             Hits.frame();
             Menu.frame(fw, fh, dt);
+            BenchPage.hud(fw, fh);
             Slow.mark("Menu");
             devImage();
             Gfx.minPx = 0;
@@ -156,12 +164,26 @@ public final class Overlay {
             Gfx.end();
             Slow.mark("GL end");
             Slow.end();
+            Bench.ov(System.nanoTime() - t0);
         } catch (Throwable t) {
             Gfx.abort();
             System.out.println("[nether-agent] overlay disabled: " + t);
             t.printStackTrace(System.out);
             panic();
         }
+    }
+
+    private static int benchDev;
+
+    /** Dev: -Dnether.benchRun=<quick|compare>:<seconds> starts a benchmark after the world has been up for a while; -Dnether.benchPage=1 opens its page. */
+    private static void devBench() {
+        String r = System.getProperty("nether.benchRun");
+        if (r != null && benchDev >= 0 && Game.hasPlayer() && ++benchDev > 600) {
+            benchDev = -1;
+            String[] p = r.split(":");
+            Bench.start(!p[0].equals("quick"), p.length > 1 ? Integer.parseInt(p[1]) : 10);
+        }
+        if ("1".equals(System.getProperty("nether.benchPage")) && benchDev >= 0 && total == 60) Menu.openBenchmark();
     }
 
     /** The overlay died: give the game everything back so vanilla stays fully usable for the rest of the session. */

@@ -48,6 +48,8 @@ public final class GlCompat extends GlBackend {
 
     @Override public String name() { return "compat GLSL 120 (" + GL11.glGetString(GL11.GL_VERSION) + ")"; }
 
+    @Override public String[] glInfo() { return new String[] {GL11.glGetString(GL11.GL_VENDOR), GL11.glGetString(GL11.GL_RENDERER), GL11.glGetString(GL11.GL_VERSION)}; }
+
     private static int shader(int type, String src) {
         int sh = GL20.glCreateShader(type);
         GL20.glShaderSource(sh, src);

@@ -53,6 +53,8 @@ public final class GlCore extends GlBackend {
 
     @Override public String name() { return "core 150"; }
 
+    @Override public String[] glInfo() { return new String[] {GL11.glGetString(GL11.GL_VENDOR), GL11.glGetString(GL11.GL_RENDERER), GL11.glGetString(GL11.GL_VERSION)}; }
+
     private static int geti(int p) { return GL11.glGetInteger(p); }
 
     private static int shader(int type, String src) {

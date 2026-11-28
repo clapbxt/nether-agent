@@ -129,6 +129,13 @@ public final class Menu {
         else if (start.equals("Settings")) go(T_SETTINGS);
     }
 
+    /** The benchmark page (Settings > Benchmark): after a test, or from the dev property. */
+    public static void openBenchmark() {
+        openAt(T_SETTINGS);
+        sub = SET_TABS.length - 1;
+        scroll = scrollT = 0;
+    }
+
     /** Open the menu straight on screen t (the title screen's actions row). */
     public static void openAt(int t) {
         boolean was = Input.menuOpen;
@@ -1616,7 +1623,7 @@ public final class Menu {
     private static final String[] ACC_NAMES = {"Red", "Ember", "Acid", "Cobalt", "Violet"};
     private static final String[][] ACC = {{"#F76A05", "#FF9A2E"}, {"#E5372D", "#FF6157"}, {"#22A845", "#3DDC6A"}, {"#1F6FEB", "#4C8DFF"}, {"#8B3DFF", "#A66BFF"}};
 
-    private static final String[] SET_TABS = {"General", "Title screen", "Controls", "Profiles"};
+    private static final String[] SET_TABS = {"General", "Title screen", "Controls", "Profiles", "Benchmark"};
     private static final String[] START = {"Hub", "Mods", "Settings"};
     private static float setPillX = -1, setPillW;
 
@@ -1648,6 +1655,7 @@ public final class Menu {
         Gfx.alpha = a0;
         if (sub == 2) { float sp = PH; PH -= 80; Controls.draw(cpx, cpy + 80, wheel); PH = sp; return; }
         if (sub == 3) { float sp = PH; PH -= 80; Profiles.draw(cpx, cpy + 80, wheel); PH = sp; return; }
+        if (sub == 4) { float sp = PH; PH -= 80; BenchPage.draw(cpx, cpy + 80, wheel); PH = sp; return; }
         float lx = mx + 20, lw = mw - 40, top = py + TOP + 88, viewH = py + ph - FOOT - top;
         Module mm = MainMenu.MODULE;
         float contentH = sub == 1 ? SettingsPage.flatH(mm, lw) + 20 : 26 + 3 * 62 + 26 + 62 + 20;

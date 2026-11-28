@@ -50,6 +50,9 @@ public abstract class GlBackend {
 
     public abstract String name();
 
+    /** {vendor, renderer, version} of the OpenGL context (render thread), for the benchmark report. */
+    public String[] glInfo() { return null; }
+
     /** Creates program, buffers and the atlas texture (an atlas x atlas single-channel texture). */
     public abstract void init(int atlas);
 
