@@ -5,6 +5,7 @@ change: what a player notices, not how it was done. At release, move the lines u
 
 ## Unreleased
 
+## 1.0.2
 - **Pause Screen:** Rebuilt to work with any mods. Buttons other mods add stay real buttons with their own icons, text, tooltips and behaviour, flowed into the column (wide ones a row each, halves in pairs, icons in a row) instead of becoming blank squares. Nothing of Nether's is drawn over another mod's button; squares that have no room move to free space. Buttons a mod positions itself are left alone. If the screen can't be arranged cleanly, the game's own layout is kept with Nether's buttons in a free corner. New setting: Main Menu → Nether pause screen (off keeps the game's layout). Disabled game buttons (e.g. Player Reporting in singleplayer) show as disabled. Hovering a mod button no longer hides Nether's squares unless it has a tooltip. The Invite and Party chips no longer overlap.
 
 ## 1.0.1
