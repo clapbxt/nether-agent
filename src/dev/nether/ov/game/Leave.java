@@ -201,7 +201,16 @@ public final class Leave {
      * int fields. Looked for from the top of the class chain down: subclasses can declare their own four ints first (26.x
      * SpriteIconButton: sprite width / height ...), and moving those instead left the button in place without its icon.
      */
+    private static final java.util.Map<Class<?>, Field[]> boxes = new java.util.WeakHashMap<>();
+    private static final Field[] NO_BOX = new Field[0];
+
     private static Field[] box(Object w) {
+        Field[] b = boxes.get(w.getClass());
+        if (b == null) boxes.put(w.getClass(), b = findBox(w));
+        return b == NO_BOX ? null : b;
+    }
+
+    private static Field[] findBox(Object w) {
         List<Class<?>> chain = new ArrayList<>();
         for (Class<?> k = w.getClass(); k != null && k != Object.class; k = k.getSuperclass()) chain.add(0, k);
         for (Class<?> k : chain) {
@@ -209,10 +218,10 @@ public final class Leave {
             for (Field f : k.getDeclaredFields()) if (f.getType() == int.class && !Modifier.isStatic(f.getModifiers())) ints.add(f);
             if (ints.size() < 4) continue;
             Field[] b = new Field[4];
-            for (int i = 0; i < 4; i++) { b[i] = ints.get(i); b[i].setAccessible(true); }
+            try { for (int i = 0; i < 4; i++) { b[i] = ints.get(i); b[i].setAccessible(true); } } catch (Throwable t) { return NO_BOX; }
             return b;
         }
-        return null;
+        return NO_BOX;
     }
 
     /** A 1.14+ widget's {x, y, width, height} in GUI px (AbstractWidget's first four ints: width, height, x, y), or null. */
@@ -226,6 +235,55 @@ public final class Leave {
         } catch (Throwable ignored) { }
         return null;
     }
+
+    /**
+     * Any widget's {x, y, width, height} in GUI px whatever its size (1.8.9 GuiButton and 1.14+ AbstractWidget alike:
+     * the first four ints of the top-most class that has four), or null. Only meaningful for objects that are widgets:
+     * check {@link #base} first.
+     */
+    public static int[] bounds(Object w) {
+        try {
+            Field[] b = box(w);
+            if (b == null) return null;
+            int ww = b[0].getInt(w), hh = b[1].getInt(w);
+            return ww > 0 && hh > 0 ? new int[] {b[2].getInt(w), b[3].getInt(w), ww, hh} : null;
+        } catch (Throwable ignored) { }
+        return null;
+    }
+
+    /** The class that declares the widget's width / height / x / y (GuiButton, AbstractWidget), or null. */
+    public static Class<?> base(Object w) {
+        Field[] b = box(w);
+        return b == null ? null : b[0].getDeclaringClass();
+    }
+
+    /**
+     * {active, visible}: the base class's first two public boolean fields (GuiButton enabled / visible, AbstractWidget
+     * active / visible, every version; its hovered and focused flags are never public). Both true when not found.
+     */
+    public static boolean[] flags(Object w) {
+        boolean[] r = {true, true};
+        try {
+            Class<?> k = base(w);
+            if (k == null) return r;
+            Field[] fs = flagFields.get(k);
+            if (fs == null) {
+                List<Field> l = new ArrayList<>();
+                for (Field f : k.getDeclaredFields()) {
+                    int m = f.getModifiers();
+                    if (f.getType() != boolean.class || Modifier.isStatic(m) || !Modifier.isPublic(m)) continue;
+                    f.setAccessible(true);
+                    l.add(f);
+                    if (l.size() == 2) break;
+                }
+                flagFields.put(k, fs = l.toArray(new Field[0]));
+            }
+            for (int i = 0; i < fs.length; i++) r[i] = fs[i].getBoolean(w);
+        } catch (Throwable ignored) { }
+        return r;
+    }
+
+    private static final java.util.Map<Class<?>, Field[]> flagFields = new java.util.WeakHashMap<>();
 
     /** The widget is a 1.14+ button (it has a press callback). */
     public static boolean isButton(Object w) { return press(w) != null; }

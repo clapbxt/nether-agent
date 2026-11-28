@@ -22,6 +22,9 @@ public abstract class Plat {
     /** Key event to the game; key is GLFW-coded. */
     public abstract void synthKey(int glfwKey, int action);
 
+    /** Dev: move the game's cursor to (x, y) window px and, when b >= 0, press / release that button (GLFW only). */
+    public void synthMouse(double x, double y, int b, int action) {}
+
     /** Once per frame before drawing: refresh polled state (cursor position). */
     public void tick() {}
 

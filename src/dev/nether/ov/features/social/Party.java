@@ -890,6 +890,13 @@ public final class Party {
         wheel = 0;
     }
 
+    /** The width {@link #chip} will draw at (units), 0 while the party is unavailable. */
+    public static float chipW() {
+        if (!linked || !loaded) return 0;
+        int n = size();
+        return 12 + 20 + Gfx.width(Gfx.SEMI, 11, n > 1 ? "PARTY  " + n : "PARTY") + 14 + (badge() > 0 ? 22 : 0);
+    }
+
     /** Top-bar PARTY control (next to CUSTOMISE); returns its width. */
     public static float chip(float x, float y, float h) {
         if (!linked || !loaded) return 0;

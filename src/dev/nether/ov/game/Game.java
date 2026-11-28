@@ -897,8 +897,10 @@ public final class Game {
             Input.mx = Double.parseDouble(p[1]);
             Input.my = Double.parseDouble(p[2]);
             String a = p[3];
-            if (a.equals("c") || a.equals("d")) Input.onButton(Input.window, 0, 1);
-            if (a.equals("c") || a.equals("u")) Input.onButton(Input.window, 0, 0);
+            if (a.equals("m")) dev.nether.ov.platform.Plat.cur.synthMouse(Input.mx, Input.my, -1, 0);
+            // a click our controls don't take reaches the game at the same spot
+            if ((a.equals("c") || a.equals("d")) && !Input.onButton(Input.window, 0, 1)) dev.nether.ov.platform.Plat.cur.synthMouse(Input.mx, Input.my, 0, 1);
+            if ((a.equals("c") || a.equals("u")) && !Input.onButton(Input.window, 0, 0)) dev.nether.ov.platform.Plat.cur.synthMouse(Input.mx, Input.my, 0, 0);
             if (a.equals("r")) { Input.onButton(Input.window, 1, 1); Input.onButton(Input.window, 1, 0); }
             if (a.startsWith("w")) Input.scrollY += Double.parseDouble(a.substring(1));
             if (a.startsWith("k")) Input.chars.append(a.substring(1)); // typed text

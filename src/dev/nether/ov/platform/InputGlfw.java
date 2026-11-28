@@ -32,6 +32,8 @@ public final class InputGlfw extends Plat {
     private static double offX, offY, fx, fy;
     // original key callback, for synthesised key events (toggle sprint/sneak)
     private static GLFWKeyCallbackI keyOrig;
+    private static GLFWMouseButtonCallbackI btnOrig;
+    private static GLFWCursorPosCallbackI posOrig;
     // wrappers currently running per kind (chained callbacks / synthesised keys pass through inner ones)
     private static int keyDepth, btnDepth, posDepth, scrollDepth, charDepth;
     private final int[] a = new int[1], b = new int[1];
@@ -56,6 +58,11 @@ public final class InputGlfw extends Plat {
         if (keyOrig == null) return;
         keyDepth++;
         try { keyOrig.invoke(Input.window, key, GLFW.glfwGetKeyScancode(key), action, 0); } finally { keyDepth--; }
+    }
+
+    @Override public void synthMouse(double x, double y, int b, int action) {
+        if (posOrig != null) { posDepth++; try { posOrig.invoke(Input.window, x, y); } finally { posDepth--; } }
+        if (b >= 0 && btnOrig != null) { btnDepth++; try { btnOrig.invoke(Input.window, b, action, 0); } finally { btnDepth--; } }
     }
 
     @Override public boolean focused() { return Input.window == 0 || GLFW.glfwGetWindowAttrib(Input.window, GLFW.GLFW_FOCUSED) != 0; }
@@ -113,7 +120,7 @@ public final class InputGlfw extends Plat {
 
     private static final class ButtonCb extends GLFWMouseButtonCallback {
         final GLFWMouseButtonCallbackI orig;
-        ButtonCb(GLFWMouseButtonCallbackI o) { orig = o; }
+        ButtonCb(GLFWMouseButtonCallbackI o) { orig = o; btnOrig = o; }
         @Override public void invoke(long w, int b, int action, int mods) {
             if (btnDepth > 0) { orig.invoke(w, b, action, mods); return; }
             if (Input.devOnly) return;
@@ -128,7 +135,7 @@ public final class InputGlfw extends Plat {
 
     private static final class CursorCb extends GLFWCursorPosCallback {
         final GLFWCursorPosCallbackI orig;
-        CursorCb(GLFWCursorPosCallbackI o) { orig = o; }
+        CursorCb(GLFWCursorPosCallbackI o) { orig = o; posOrig = o; }
         @Override public void invoke(long w, double x, double y) {
             if (posDepth > 0 || Input.dead) { orig.invoke(w, x, y); return; }
             if (Input.devOnly) return;

@@ -75,13 +75,16 @@ public final class MainMenu {
         m.add(Setting.action("splashEdit", "Your splashes", "EDIT", Splashes::show).hint("Add, edit or remove, or restore Minecraft's. Saved in client/splashes.txt.").when(sp));
         m.add(Setting.bool("clock", "Clock", true).hint("Follows the Clock module's 24-hour setting."));
         m.add(Setting.bool("account", "Account", true).hint("Your name and skin head (skin from Mojang's profile service)."));
+        m.add(Setting.header("Pause screen"));
+        m.add(Setting.bool("pauseLayout", "Nether pause screen", true).hint("Off: the game's pause screen stays exactly as the game and your mods lay it out, with Nether's buttons in a free corner."));
     }
 
     static { dev.nether.agent.Hook.panoDraw = Pano::menu; } // the game's own menus show our panorama too
 
     private static Class<?> cTitle, cPause, cMods;
     private static Field fFading, fFadeStart, fSplash;
-    private static boolean looked, legacy;
+    private static boolean looked;
+    static boolean legacy;
     /** our title screen is drawn this frame (every click on it is ours) */
     public static boolean title, pause, packs, pick;
     private static boolean pressed, click;
@@ -150,7 +153,7 @@ public final class MainMenu {
         if (cTitle == null) return;
         QuickJoin.track();
         Object s = Game.screen();
-        if (s == null) { panelOpen = false; return; }
+        if (s == null) { panelOpen = false; PauseMenu.forget(); hiddenPause = null; return; }
         boolean isTitle = cTitle.isInstance(s);
         Gfx.minPx = 9; // corner text and labels stay legible in small windows
         boolean r0 = Gfx.round;
@@ -183,7 +186,7 @@ public final class MainMenu {
                 if (packButton("Combine", true)) PackMixer.show();
             } else if (cPause != null && cPause.isInstance(s) && Input.menuOpen && !legacy) {
                 // a Nether page is open over the pause screen: the player stays paused, vanilla's pause screen just isn't shown
-                for (Object w : Leave.widgets(s)) Leave.place(w, -4000, -4000);
+                PauseMenu.hide(s);
                 hiddenPause = s;
             } else if (cPause != null && cPause.isInstance(s) && !Input.menuOpen) {
                 // F3+Esc pauses without the menu (screenshots): no button either
@@ -193,20 +196,8 @@ public final class MainMenu {
                     float W = Gfx.fbW / Gfx.s, H = Gfx.fbH / Gfx.s;
                     modal = Party.modal(W, H);
                     tip = null;
-                    if (hiddenPause == s) { hiddenPause = null; Game.setScreen(s); } // back from a Nether page: vanilla rebuilds its buttons
-                    if (legacy || !pauseButtons(s)) {
-                    float cx = 12 + chipW("NETHER", keyName(), true) + 8;
-                    if (chip("pause", 12, 12, 32, "NETHER", keyName(), true, false, false)) Menu.openAt(Menu.lastCat);
-                    // singleplayer: invite friends into this world (WorldShare)
-                    if (WorldShare.server() != null) {
-                        boolean on = WorldShare.sharing();
-                        if (chip("invite", cx, 12, 32, on ? "SHARING" : "INVITE", null, false, on, true)) WorldShare.show();
-                        cx += chipW(on ? "SHARING" : "INVITE", null, false) + 8;
-                    }
-                    // the party, in the world too: members, invite, kick, volume, voice
-                    Party.chip(cx, 12, 32);
-                    galleryButton(s);
-                    }
+                    if (hiddenPause == s) { hiddenPause = null; PauseMenu.unhide(); Game.setScreen(s); } // back from a Nether page: vanilla rebuilds its buttons
+                    PauseMenu.draw(s, legacy, W, H);
                     WorldShare.card(W, 12);
                     Party.pause(W, H);
                     if (tip != null) tooltip(W, H);
@@ -221,134 +212,6 @@ public final class MainMenu {
 
     /** the pause screen whose widgets were moved away while a Nether page was open */
     private static Object hiddenPause;
-
-    /**
-     * 1.14+ pause screen as one column of big buttons: Back to Game, Nether, then every other wide button the screen
-     * has (Mod Menu's Mods, a server's custom buttons) in its own order, Save and Quit / Disconnect last, so nothing
-     * can sit on top of the leave button. Square buttons down both sides (left: Options, Wardrobe; right, counted up from
-     * the leave row: Screenshots, Edit HUD, Invite, Party) and every small vanilla button (Advancements, Statistics, LAN /
-     * World Options, Feedback, Bugs, Player Reporting, Friends, Server Links) as a square in the bottom left; those
-     * widgets are moved off screen and pressed through their callbacks. False when the buttons can't be found.
-     */
-    private static float[] vanillaTip;
-
-    private static boolean pauseButtons(Object s) {
-        java.util.List<Object> ws = Leave.widgets(s);
-        Object back = Leave.button(ws, "menu.returnToGame"), quit = Leave.button(ws, "menu.returnToMenu");
-        if (quit == null) quit = Leave.button(ws, "menu.disconnect");
-        int[] br = back == null ? null : Leave.rect(back);
-        if (br == null || quit == null) return false;
-        Object opts = Leave.button(ws, "menu.options");
-        java.util.List<Object[]> wide = new java.util.ArrayList<>(), extras = new java.util.ArrayList<>();
-        boolean friends = false;
-        Object modsIcon = null;
-        for (Object w : ws) {
-            if (w == back || w == quit || w == opts || !Leave.isButton(w)) continue;
-            // Mod Menu on 26.x puts its Mods button in the icon row as a 20 px square: shown as the wide Mods row instead
-            if (modsIcon == null && modMenu(w) && Leave.rect(w) != null && Leave.rect(w)[2] < 150) { modsIcon = w; continue; }
-            int[] r = Leave.rect(w);
-            String[] x = pauseExtra(w);
-            if (x == null && r != null && r[2] >= 150) { wide.add(new Object[] {w, r[1]}); continue; }
-            if (x == null && r == null) continue;
-            if (x == null) x = new String[] {"menu", "More"};
-            friends |= x[0].equals("friends");
-            extras.add(new Object[] {w, x[0], x[1]});
-        }
-        wide.sort((p, q) -> Integer.compare((Integer) p[1], (Integer) q[1]));
-        for (Object w : new Object[] {opts}) if (w != null) Leave.place(w, -4000, -4000);
-        for (Object[] e : extras) Leave.place(e[0], -4000, -4000);
-        if (modsIcon != null) Leave.place(modsIcon, -4000, -4000);
-        int row = modsIcon != null ? 4 : 3;
-        vanillaTip = null;
-        for (Object[] w : wide) {
-            int wy = br[1] + 24 * (row++ - 1);
-            Leave.place(w[0], br[0], wy);
-            // the game draws this button's tooltip over everything of ours: keep our square buttons out of its way
-            // (Mod Menu's Mods button has none: hovering it must not hide Screenshots / Edit HUD beside it)
-            if (!Input.menuOpen && !modMenu(w[0]) && MX >= br[0] * 2 && MX < (br[0] + br[2]) * 2 && MY >= wy * 2 && MY < (wy + 20) * 2) vanillaTip = new float[] {MX - 4, MY, 380, 150};
-        }
-        int qr = Math.max(4, row);
-        Leave.place(quit, br[0], br[1] + 24 * (qr - 1));
-        float W = Gfx.fbW / Gfx.s, H = Gfx.fbH / Gfx.s;
-        float sz = 40, bx = br[0] * 2, by = br[1] * 2, bw = br[2] * 2, rx = bx + bw + 8, lx = bx - 8 - sz;
-        if (wideButton(bx, by + 48, bw, "Nether")) Menu.openAt(Menu.lastCat);
-        if (modsIcon != null && wideButton(bx, by + 96, bw, "Mods", false)) Leave.click(modsIcon);
-        // left: the game's options, wardrobe
-        if (opts != null && squareButton("po", lx, by, sz, "options", "Options")) Leave.click(opts);
-        if (squareButton("pw", lx, by + 48, sz, "wardrobe", "Wardrobe")) Menu.openAt(Menu.T_WARDROBE);
-        // right, upward from the leave row: screenshots, edit HUD, invite, party
-        float ry = by + 48 * (qr - 1);
-        if (Modules.SHOTS.enabled() && squareButton("pg", rx, ry, sz, "screenshots", "Screenshots")) Screenshots.show();
-        if (squareButton("ph", rx, ry - 48, sz, "hudeditor", "Edit HUD")) Menu.openHudEditor();
-        if (WorldShare.server() != null && squareButton("pi", rx, ry - 96, sz, "invite", WorldShare.sharing() ? "Sharing this world" : "Invite friends")) WorldShare.show();
-        if (Party.ready()) {
-            Party.anchor(rx, ry - 144, sz, sz);
-            if (squareButton("pp", rx, ry - 144, sz, "party", Party.size() > 1 ? "Party  ·  " + Party.size() : "Party")) Party.toggleDrawer();
-        }
-        // bottom left: every small vanilla button, then our Friends when the game has none
-        int per = Math.max(1, (int) ((W * 0.5f - 16) / (sz + 8))), n = 0;
-        for (Object[] e : extras) {
-            float cx = 16 + (n % per) * (sz + 8), cy = H - 16 - sz - (n / per) * (sz + 8);
-            if (squareButton("px" + n, cx, cy, sz, (String) e[1], (String) e[2])) Leave.click(e[0]);
-            n++;
-        }
-        if (!friends && squareButton("pf", 16 + (n % per) * (sz + 8), H - 16 - sz - (n / per) * (sz + 8), sz, "friends", "Friends")) Menu.openAt(Menu.T_FRIENDS);
-        return true;
-    }
-
-    /** {icon, tooltip} of a small vanilla pause button by its text key (or class, for the icon-only Friends button); null when unknown. */
-    private static String[] pauseExtra(Object w) {
-        String[][] m = {{"gui.advancements", "advancements", "Advancements"}, {"gui.stats", "stats", "Statistics"}, {"menu.shareToLan", "lan", "Open to LAN"},
-            {"options.worldOptions.button", "home", "World options"}, {"menu.sendFeedback", "chat", "Give feedback"}, {"menu.reportBugs", "bug", "Report bugs"},
-            {"menu.feedback", "chat", "Feedback"}, {"menu.playerReporting", "report", "Player reporting"}, {"menu.server_links", "server", "Server links"}};
-        for (String[] e : m) if (Leave.says(w, "'" + e[0] + "'")) return new String[] {e[1], e[2]};
-        return w.getClass().getSimpleName().contains("Friends") ? new String[] {"friends", "Friends"} : null;
-    }
-
-    /** A square button in the game's own style with an icon (units, 2 per GUI px); true when clicked. */
-    private static boolean squareButton(String id, float x, float y, float sz, String icon, String tipText) {
-        float[] z = vanillaTip;
-        if (z != null && x < z[0] + z[2] && x + sz > z[0] && y < z[1] + z[3] && y + sz > z[1]) return false; // under the game's tooltip
-        float a0 = Gfx.alpha;
-        Gfx.alpha = 1; // drawn like the game's own buttons, never faded
-        boolean hov = over(x, y, sz, sz);
-        if (!Vanilla.button(x, y, sz, hov)) {
-            Gfx.rect(x, y, sz, sz, 0, hov ? 0xFF6F6F6F : 0xFF4A4A4A);
-            Gfx.ring(x, y, sz, sz, 0, 2, hov ? 0xFFFFFFFF : 0xFF000000);
-        }
-        ModIcons.draw(icon, x + sz / 2 - 12, y + sz / 2 - 12, 24, legacy && hov ? 0xFFFFFFA0 : 0xFFFFFFFF);
-        box(x, y, sz, sz);
-        Gfx.alpha = a0;
-        if (hov && tipText != null) tip(tipText);
-        return hit(x, y, sz, sz);
-    }
-
-    /** Mod Menu's own pause button (its class or its text key). */
-    private static boolean modMenu(Object w) {
-        return w.getClass().getName().toLowerCase(Locale.ROOT).contains("modmenu") || Leave.says(w, "'modmenu.title'");
-    }
-
-    private static boolean wideButton(float x, float y, float w, String label) { return wideButton(x, y, w, label, true); }
-
-    /** A full-width button in the game's style, the fireball mark left of the label when mark (units); true when clicked. */
-    private static boolean wideButton(float x, float y, float w, String label, boolean mark) {
-        float a0 = Gfx.alpha;
-        Gfx.alpha = 1;
-        boolean hov = over(x, y, w, 40), vf = Vanilla.font();
-        if (!Vanilla.button(x, y, w, hov)) {
-            Gfx.rect(x, y, w, 40, 0, hov ? 0xFF6F6F6F : 0xFF4A4A4A);
-            Gfx.ring(x, y, w, 40, 0, 2, hov ? 0xFFFFFFFF : 0xFF000000);
-        }
-        float tw = vf ? Vanilla.width(label) : Gfx.width(Gfx.SEMI, 11, label), mw = mark ? 24 : 0;
-        float cx = x + (w - (mw + tw)) / 2;
-        if (mark) mark(cx, y + (40 - 18.9f) / 2, 16);
-        int col = legacy && hov ? 0xFFFFFFA0 : 0xFFFFFFFF;
-        if (vf) Vanilla.text(label, cx + mw, y + 12, col, true);
-        else Gfx.text(Gfx.SEMI, 11, cx + mw, y + 20, col, label);
-        box(x, y, w, 40);
-        Gfx.alpha = a0;
-        return hit(x, y, w, 40);
-    }
 
     private static int footerVer = -1;
 
@@ -525,7 +388,7 @@ public final class MainMenu {
         return str.substring(0, n).trim() + "...";
     }
 
-    private static String keyName() { return Menu.keyName(Config.menuKey()); }
+    static String keyName() { return Menu.keyName(Config.menuKey()); }
 
     // ---------------------------------------------------------------- title screen
 
@@ -868,20 +731,6 @@ public final class MainMenu {
         if (go >= 0) { panelOpen = false; Menu.openAt(go); }
     }
 
-    /**
-     * Pause screen: square buttons in the game's own style right of Save and Quit / Disconnect (vanilla's language and
-     * accessibility buttons sit the same way): the screenshots icon opens the Screenshots browser, and Edit HUD above it
-     * (in its place while Screenshots is off) opens the HUD editor.
-     */
-    private static void galleryButton(Object s) {
-        int[] q = Leave.quitRect(s);
-        if (q == null) return;
-        float x = (q[0] + q[2] + 4) * 2, y = q[1] * 2, sz = q[3] * 2;
-        boolean shots = Modules.SHOTS.enabled();
-        if (shots && squareButton("pg", x, y, sz, "screenshots", "Screenshots")) Screenshots.show();
-        if (squareButton("ph", x, shots ? y - (q[3] + 4) * 2 : y, sz, "hudeditor", "Edit HUD")) Menu.openHudEditor();
-    }
-
     /** An actions-row button: the title buttons' glass with a line icon or a label, and a tooltip on hover. */
     private static boolean actBtn(String id, float x, float y, float w, float h, String icon, String label, String tipText) {
         boolean hv = over(x, y, w, h), down = hv && Input.btn[0];
@@ -1107,7 +956,7 @@ public final class MainMenu {
         partyChip = pw > 0 ? new float[] {x + w + 8, y, pw, h} : null;
     }
 
-    private static float chipW(String label, String key, boolean mark) {
+    static float chipW(String label, String key, boolean mark) {
         float kw = key != null ? Gfx.width(Gfx.UI, 10, key) + 12 : 0;
         return 12 + (mark ? 22 : 0) + Gfx.width(Gfx.SEMI, 11, label) + (key != null ? 8 + kw : 0) + 12;
     }
@@ -1116,7 +965,7 @@ public final class MainMenu {
      * Small top-bar button: NETHER (ghast mark + key chip, red) or a neutral one with a settings glyph; drawn the same on
      * the title and pause screens. Returns true when clicked.
      */
-    private static boolean chip(String id, float x, float y, float h, String label, String key, boolean mark, boolean active, boolean person) {
+    static boolean chip(String id, float x, float y, float h, String label, String key, boolean mark, boolean active, boolean person) {
         float kw = key != null ? Gfx.width(Gfx.UI, 10, key) + 12 : 0;
         float w = chipW(label, key, mark) + (mark ? 0 : 18);
         float t = an(id, over(x, y, w, h) || active);
